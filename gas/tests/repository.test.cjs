@@ -55,7 +55,19 @@ function createSheet(name, rows = []) {
     name,
     rows,
     getLastRow() {
-      return this.rows.length;
+      for (let index = this.rows.length - 1; index >= 0; index -= 1) {
+        if (this.rows[index].some((value) => String(value ?? "").trim() !== "")) return index + 1;
+      }
+      return 0;
+    },
+    getLastColumn() {
+      let last = 0;
+      for (const row of this.rows) {
+        row.forEach((value, index) => {
+          if (String(value ?? "").trim() !== "") last = Math.max(last, index + 1);
+        });
+      }
+      return last;
     },
     getRange(row, column, rowCount = 1, columnCount = 1) {
       return {
@@ -358,6 +370,23 @@ for (const [label, header] of [
 ]) {
   test(`initialization rejects a ${label} header without changing rows`, () => {
     const rows = [header.slice(), ["data", "row"]];
+    const original = JSON.parse(JSON.stringify(rows));
+    const sheets = { Bookings: createSheet("Bookings", rows) };
+    const { context } = loadRepository({ sheets });
+
+    assert.throws(() => context.initializeWorkbook_(), /Bookings.*header/i);
+    assert.deepEqual(JSON.parse(JSON.stringify(sheets.Bookings.rows)), original);
+  });
+}
+
+for (const [label, rows] of [
+  ["blank header row with data below", [["", "", ""], ["b1", "L1", "c1"]]],
+  [
+    "extra header column",
+    [[...expectedHeaders.Bookings, "extra"], ["b1", "L1", "c1"]],
+  ],
+]) {
+  test(`initialization rejects ${label} without changing cells`, () => {
     const original = JSON.parse(JSON.stringify(rows));
     const sheets = { Bookings: createSheet("Bookings", rows) };
     const { context } = loadRepository({ sheets });

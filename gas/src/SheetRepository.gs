@@ -7,16 +7,17 @@ function initializeWorkbook_() {
     }
 
     var headers = SHEET_SCHEMAS_[sheetName];
-    var headerRange = sheet.getRange(1, 1, 1, headers.length);
+    var width = Math.max(sheet.getLastColumn(), headers.length);
+    var headerRange = sheet.getRange(1, 1, 1, width);
+    if (sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      return;
+    }
+
     var existing = headerRange.getValues()[0];
-    var isBlank = existing.every(function (value) {
-      return String(value == null ? "" : value).trim() === "";
-    });
-    if (isBlank) {
-      headerRange.setValues([headers]);
-    } else if (
+    if (
       existing.some(function (value, index) {
-        return value !== headers[index];
+        return value !== (index < headers.length ? headers[index] : "");
       })
     ) {
       throw new Error(
