@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, Newspaper, GraduationCap, Award, Calendar } from "lucide-react";
 import CourseCard from "@/components/CourseCard";
+import ArticleCover from "@/components/ArticleCover";
 import { getCourses, getArticles, getNews, getInstructors, articleCategories } from "@/lib/data";
+
+export const revalidate = 1800;
 
 export default async function Home() {
   const [courses, articles, news, instructors] = await Promise.all([
@@ -43,12 +46,15 @@ export default async function Home() {
           <SectionTitle icon={<BookOpen />} title="不動產知識庫" />
           <div className="grid gap-6 md:grid-cols-3">
             {articles.map((a) => (
-              <Link key={a.id} href={`/articles/${a.slug}`} className="group rounded-2xl border border-slate-200 p-6 transition hover:border-brand-500 hover:shadow-md">
+              <Link key={a.id} href={`/articles/${a.slug}`} className="group overflow-hidden rounded-2xl border border-slate-200 transition hover:border-brand-500 hover:shadow-md">
+                <ArticleCover src={a.image} alt={a.title} />
+                <div className="p-6">
                 <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
                   {articleCategories[a.category]}
                 </span>
                 <h3 className="mb-2 mt-3 text-lg font-bold text-slate-900 group-hover:text-brand-600">{a.title}</h3>
                 <p className="text-sm text-slate-600">{a.excerpt}</p>
+                </div>
               </Link>
             ))}
           </div>
@@ -66,7 +72,7 @@ export default async function Home() {
                 </span>
                 <span className="flex-1">
                   <span className="block font-semibold text-slate-900">{n.title}</span>
-                  <span className="text-sm text-slate-600">{n.summary}</span>
+                  {n.summary && <span className="text-sm text-slate-600">{n.summary}</span>}
                 </span>
                 <span className="text-xs text-slate-400">{n.source}</span>
               </a>

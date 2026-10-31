@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-label="不動產知識">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f1f4d"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#g)"/>
+  <g fill="none" stroke="#ffffff" stroke-opacity=".9" stroke-width="10" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M300 250 L400 160 L500 250"/>
+    <path d="M325 235 V315 H475 V235"/>
+    <path d="M375 315 V265 H425 V315"/>
+  </g>
+  <circle cx="640" cy="90" r="60" fill="#c9a24b" fill-opacity=".25"/>
+  <circle cx="130" cy="370" r="80" fill="#ffffff" fill-opacity=".08"/>
+</svg>

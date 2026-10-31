@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Calendar, Clock, ListOrdered } from "lucide-react";
 import ShareButtons from "@/components/ShareButtons";
+import ArticleCover from "@/components/ArticleCover";
 import {
   getArticles, getArticleBySlug, getArticlesByIds, getInstructor,
   articleCategories, type Block,
@@ -29,7 +30,8 @@ export default async function ArticlePage({ params }: { params: { slug: string }
     <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 lg:grid-cols-[1fr_280px]">
       <article>
         <Link href="/#knowledge" className="text-sm text-brand-600 hover:underline">← 返回知識庫</Link>
-        <span className="mt-4 block w-fit rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+        <ArticleCover src={article.image} alt={article.title} className="mt-4 rounded-2xl" />
+        <span className="mt-6 block w-fit rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
           {articleCategories[article.category]}
         </span>
         <h1 className="mb-4 mt-3 text-3xl font-bold leading-tight text-brand-900">{article.title}</h1>
@@ -58,9 +60,12 @@ export default async function ArticlePage({ params }: { params: { slug: string }
           <h2 className="mb-4 text-xl font-bold text-slate-900">相關文章</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {related.map((r) => (
-              <Link key={r.id} href={`/articles/${r.slug}`} className="rounded-xl border border-slate-200 bg-white p-4 hover:shadow-md">
-                <span className="text-xs text-brand-600">{articleCategories[r.category]}</span>
-                <p className="mt-1 font-semibold text-slate-900">{r.title}</p>
+              <Link key={r.id} href={`/articles/${r.slug}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white hover:shadow-md">
+                <ArticleCover src={r.image} alt={r.title} />
+                <div className="p-4">
+                  <span className="text-xs text-brand-600">{articleCategories[r.category]}</span>
+                  <p className="mt-1 font-semibold text-slate-900">{r.title}</p>
+                </div>
               </Link>
             ))}
           </div>
