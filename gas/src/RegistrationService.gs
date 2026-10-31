@@ -7,6 +7,10 @@ function submitBooking(payload) {
   var bookingId = Utilities.getUuid();
   var lookupCode = Utilities.getUuid();
   var lock = LockService.getScriptLock();
+  var confirmationEmailStatus = "";
+  var confirmationEmailStatusRecorded = true;
+  var confirmationEmailStatusError = null;
+  var sendConfirmationEmail = false;
   lock.waitLock(30000);
   try {
     var course = getCourses_().filter(function (item) {
@@ -88,61 +92,128 @@ function submitBooking(payload) {
       }
       throw new Error("Registration persistence failed: " + error.message);
     }
+
+    var reservation = reserveConfirmationEmailAttempt_(payload.leaderEmail);
+    if (reservation === "RESERVED") {
+      sendConfirmationEmail = true;
+    } else {
+      confirmationEmailStatus = reservation;
+      try {
+        updateBooking_(bookingId, {
+          confirmationEmailStatus: confirmationEmailStatus,
+        });
+      } catch (statusError) {
+        confirmationEmailStatusRecorded = false;
+        confirmationEmailStatusError = statusError;
+      }
+    }
   } finally {
     lock.releaseLock();
   }
 
-  var confirmationEmailStatus = "SENT";
-  try {
-    MailApp.sendEmail({
-      to: payload.leaderEmail,
-      subject: "課程報名確認",
-      body:
-        "您的報名已完成。\n報名查詢代碼：" +
-        lookupCode +
-        "\n請保存此代碼以查詢或申請取消。",
-    });
-  } catch (mailError) {
-    confirmationEmailStatus = "FAILED";
-  }
+  if (sendConfirmationEmail) {
+    confirmationEmailStatus = "SENT";
+    try {
+      MailApp.sendEmail({
+        to: payload.leaderEmail,
+        subject: "課程報名確認",
+        body:
+          "您的報名已完成。\n報名查詢代碼：" +
+          lookupCode +
+          "\n請保存此代碼以查詢或申請取消。",
+      });
+    } catch (mailError) {
+      confirmationEmailStatus = "FAILED";
+    }
 
-  var emailStatusRecorded = true;
-  var statusError = null;
-  var statusLock = null;
-  try {
-    statusLock = LockService.getScriptLock();
-    statusLock.waitLock(30000);
-    updateBooking_(bookingId, {
-      confirmationEmailStatus: confirmationEmailStatus,
-    });
-  } catch (error) {
-    emailStatusRecorded = false;
-    statusError = error;
-  } finally {
-    if (statusLock) {
-      try {
-        statusLock.releaseLock();
-      } catch (releaseError) {}
+    var statusLock = null;
+    try {
+      statusLock = LockService.getScriptLock();
+      statusLock.waitLock(30000);
+      updateBooking_(bookingId, {
+        confirmationEmailStatus: confirmationEmailStatus,
+      });
+    } catch (error) {
+      confirmationEmailStatusRecorded = false;
+      confirmationEmailStatusError = error;
+    } finally {
+      if (statusLock) {
+        try {
+          statusLock.releaseLock();
+        } catch (releaseError) {}
+      }
     }
   }
 
-  var message =
-    confirmationEmailStatus === "SENT"
-      ? "Registration submitted"
-      : "Registration submitted, but confirmation email delivery failed";
-  if (!emailStatusRecorded) {
+  var messages = {
+    SENT: "Registration submitted",
+    FAILED:
+      "Registration submitted, but confirmation email delivery failed",
+    RATE_LIMITED:
+      "Registration submitted. Confirmation email was suppressed by the hourly rate limit; please copy and save your lookup code.",
+    RATE_LIMIT_UNAVAILABLE:
+      "Registration submitted. The email rate limit could not be checked, so confirmation email was not sent; please copy and save your lookup code.",
+  };
+  var message = messages[confirmationEmailStatus];
+  if (!confirmationEmailStatusRecorded) {
     message +=
       ". Warning: confirmation email status could not be recorded: " +
-      statusError.message +
+      confirmationEmailStatusError.message +
       ". Please save the lookup code.";
   }
   return {
     success: true,
     lookupCode: lookupCode,
     confirmationEmailStatus: confirmationEmailStatus,
-    confirmationEmailStatusRecorded: emailStatusRecorded,
+    confirmationEmailStatusRecorded: confirmationEmailStatusRecorded,
     message: message,
   };
+}
+
+function reserveConfirmationEmailAttempt_(leaderEmail) {
+  var windowMilliseconds = 60 * 60 * 1000;
+  try {
+    var normalizedEmail = normalizeEmail_(leaderEmail);
+    var digest = Utilities.computeDigest(
+      Utilities.DigestAlgorithm.SHA_256,
+      normalizedEmail,
+    );
+    var emailHash = Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, "");
+    var cacheKey = "confirmation-email:" + emailHash;
+    var cache = CacheService.getScriptCache();
+    var now = Date.now();
+    var cachedAttempts = cache.get(cacheKey);
+    var attempts = cachedAttempts == null ? [] : JSON.parse(cachedAttempts);
+    if (
+      !Array.isArray(attempts) ||
+      attempts.some(function (timestamp) {
+        return (
+          typeof timestamp !== "number" ||
+          !isFinite(timestamp) ||
+          timestamp > now
+        );
+      })
+    ) {
+      throw new Error("Invalid confirmation email rate limit data");
+    }
+
+    attempts = attempts.filter(function (timestamp) {
+      return now - timestamp < windowMilliseconds;
+    });
+    if (attempts.length >= 3) {
+      return "RATE_LIMITED";
+    }
+
+    attempts.push(now);
+    var expiresInSeconds = Math.max(
+      1,
+      Math.ceil((attempts[0] + windowMilliseconds - now) / 1000),
+    );
+    cache.put(cacheKey, JSON.stringify(attempts), expiresInSeconds);
+    return "RESERVED";
+  } catch (error) {
+    return "RATE_LIMIT_UNAVAILABLE";
+  }
 }
 
 function lookupBooking(lookupCode, leaderPhone) {
@@ -184,9 +255,11 @@ function lookupBooking(lookupCode, leaderPhone) {
 }
 
 function requestCancellation(lookupCode, leaderPhone, reason) {
-  if (typeof reason !== "string" || reason.trim() === "") {
-    throw new Error("Cancellation reason is required");
+  if (reason != null && typeof reason !== "string") {
+    throw new Error("Cancellation reason must be a string");
   }
+  var normalizedReason =
+    typeof reason === "string" ? reason.trim() : "";
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -210,7 +283,7 @@ function requestCancellation(lookupCode, leaderPhone, reason) {
     var request = {
       requestId: Utilities.getUuid(),
       bookingId: booking.bookingId,
-      reason: reason.trim(),
+      reason: normalizedReason,
       status: "PENDING",
       requestedAt: new Date().toISOString(),
       reviewedBy: "",

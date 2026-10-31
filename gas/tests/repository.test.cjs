@@ -217,6 +217,46 @@ test("a missing Courses sheet returns fallback courses in the canonical schema",
   );
 });
 
+test("a missing Bookings sheet is a configuration error, not an empty result", () => {
+  const { context } = loadRepository();
+
+  assert.throws(
+    () => context.getBookings_(),
+    (error) =>
+      error.name === "ConfigurationError" &&
+      error.code === "REQUIRED_SHEET_MISSING" &&
+      /Bookings/.test(error.message),
+  );
+});
+
+test("missing required record sheets are configuration errors", () => {
+  for (const [sheetName, getterName] of [
+    ["Bookings", "getBookings_"],
+    ["Participants", "getParticipants_"],
+    ["CancellationRequests", "getCancellationRequests_"],
+  ]) {
+    const { context } = loadRepository();
+
+    assert.throws(
+      () => context[getterName](),
+      (error) =>
+        error.name === "ConfigurationError" &&
+        error.code === "REQUIRED_SHEET_MISSING" &&
+        error.message.includes(sheetName),
+    );
+  }
+});
+
+test("an existing empty required record sheet returns an empty result", () => {
+  const { context } = loadRepository({
+    sheets: {
+      Bookings: createSheet("Bookings", [expectedHeaders.Bookings]),
+    },
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(context.getBookings_())), []);
+});
+
 test("usable Courses rows are returned without adding fallback courses", () => {
   const fallback = [{ id: "fallback-course" }];
   const { context } = loadRepository({

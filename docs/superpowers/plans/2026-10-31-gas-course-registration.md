@@ -173,7 +173,7 @@ git commit -m "feat: add spreadsheet repository and course fallback" -m "Co-auth
 
 - [ ] **Step 1：先測試服務狀態與重複報名規則**
 
-先建立空的 `gas/src/RegistrationService.gs`，再以記憶體 repository、可觀察的 fake lock、fake mailer 注入服務依賴，測試：有效報名寫入一筆 Booking 與每位 Participants；既有有效報名的手機或 Email 任一相同即拒絕；取消待審仍拒絕重複；已核准取消後允許重新報名；同團不同學員共用聯絡資料可接受；團報少於三人拒絕；查詢碼或團主手機不符時回覆相同的「找不到報名」結果。
+先建立空的 `gas/src/RegistrationService.gs`，再以記憶體 repository、可觀察的 fake lock、fake mailer 及 fake ScriptCache 注入服務依賴，測試：有效報名寫入一筆 Booking 與每位 Participants；既有有效報名的手機或 Email 任一相同即拒絕；取消待審仍拒絕重複；已核准取消後允許重新報名；同團不同學員共用聯絡資料可接受；團報少於三人拒絕；查詢碼或團主手機不符時回覆相同的「找不到報名」結果；取消原因可省略；同一正規化 Email 第四次寄信被節流；寄信期間可交錯提出取消且狀態更新不覆寫取消狀態。
 
 - [ ] **Step 2：執行服務測試確認失敗**
 
@@ -183,13 +183,15 @@ Expected: FAIL，因 `RegistrationService.gs` 尚未實作服務函式。
 
 - [ ] **Step 3：實作 `submitBooking(payload)`**
 
-以 `LockService.getScriptLock().waitLock(...)` 保護重新讀課程狀態、重複檢查及寫入。依序建立 `PROCESSING` Booking、批次寫入 Participants、成功後將 Booking 改為 `SUBMITTED`；若任何寫入失敗，嘗試標記 `FAILED`，回傳明確錯誤且絕不呈現成功。只對 `SUBMITTED`／`CANCELLATION_PENDING` booking 的參加者做重複檢查。成功寫入後再寄確認信；寄信失敗時保留已建立資料及 lookup code，更新 `confirmationEmailStatus` 並將可複製的報名編號回傳前端。
+以 `LockService.getScriptLock().waitLock(...)` 保護重新讀課程狀態、重複檢查及寫入。依序建立 `PROCESSING` Booking、批次寫入 Participants、成功後將 Booking 改為 `SUBMITTED`；若任何初始持久化寫入失敗，嘗試標記 `FAILED`，回傳明確錯誤且絕不呈現成功。只對 `SUBMITTED`／`CANCELLATION_PENDING` booking 的參加者做重複檢查。資料成功寫入後、仍持有 Script Lock 時，依正規化（去除首尾空白並轉小寫）的團主 Email 預留每 60 分鐘最多 3 次確認信寄送額度；ScriptCache key 為該 Email 的 SHA-256 雜湊，不得使用原始 Email 作 key。達上限時不寄信，報名維持 `SUBMITTED`，記錄 `confirmationEmailStatus: "RATE_LIMITED"` 並回傳可複製代碼及明確訊息。ScriptCache 不可用或檢查失敗時 fail-closed、不寄信，記錄／回傳 `RATE_LIMIT_UNAVAILABLE`，仍保留成功報名與代碼。ScriptCache 可能提早逐出資料，故此為盡力防濫用而非絕對配額。額度預留後先釋放原鎖再寄信；寄信後以第二次 Script Lock 更新寄信狀態，狀態更新失敗不得將成功報名改為 `FAILED`，仍回傳代碼及未記錄狀態的警告。
 
 建立 Booking 時，系統內部 `bookingId` 與學員看到、收到 Email 並輸入的 `lookupCode` 均以 `Utilities.getUuid()` 產生。
 
 - [ ] **Step 4：實作 `lookupBooking(lookupCode, leaderPhone)` 與 `requestCancellation(lookupCode, leaderPhone, reason)`**
 
-`lookupBooking(lookupCode, leaderPhone)` 與 `requestCancellation(lookupCode, leaderPhone, reason)` 都必須以 `lookupCode + leaderPhone` 精確比對，其中團主手機須先正規化。查詢只回傳相符的團報欄位；不存在、手機錯誤或代碼錯誤使用同一回應。取消只接受尚未取消且沒有待審申請的 booking，新增 `PENDING` request 並把 Booking 設為 `CANCELLATION_PENDING`，不刪除任何資料。
+`lookupBooking(lookupCode, leaderPhone)` 與 `requestCancellation(lookupCode, leaderPhone, reason)` 都必須以 `lookupCode + leaderPhone` 精確比對，其中團主手機須先正規化。查詢只回傳相符的團報欄位；不存在、手機錯誤或代碼錯誤使用同一回應。取消只接受尚未取消且沒有待審申請的 booking，新增 `PENDING` request 並把 Booking 設為 `CANCELLATION_PENDING`，不刪除任何資料。取消原因為選填；省略、`null` 或空白字串儲存為空字串，非字串且非 `null` 值拒絕。
+
+Repository 讀取 Bookings、Participants 或 CancellationRequests 時，缺少工作表必須回報明確初始化／設定錯誤；只有存在但沒有資料列的工作表回傳空陣列。`getCourses_()` 保留 Courses 工作表不存在時的 JSON 備援。
 
 - [ ] **Step 5：執行服務測試並提交**
 
@@ -221,11 +223,11 @@ git commit -m "feat: add GAS booking and cancellation services" -m "Co-authored-
 
 - [ ] **Step 3：實作提交、查詢及取消的瀏覽器狀態**
 
-送出時停用按鈕並顯示等待狀態；`withSuccessHandler` 顯示成功／驗證錯誤，`withFailureHandler` 顯示可理解的服務錯誤。成功頁顯示報名編號和 Email 寄送狀態。查詢表單要求報名編號及團主手機；查詢成功只展示該團報。取消需先確認整筆團報取消，再送出可選原因；結果明確標為「待管理員審核」，不能立即顯示已取消。
+送出時停用按鈕並顯示等待狀態；`withSuccessHandler` 顯示成功／驗證錯誤，`withFailureHandler` 顯示可理解的服務錯誤。成功頁顯示報名編號和 Email 寄送狀態，包括節流後的 `RATE_LIMITED` 與 ScriptCache 不可用時的 `RATE_LIMIT_UNAVAILABLE`；兩者都必須讓使用者複製／保存報名編號。查詢表單要求報名編號及團主手機；查詢成功只展示該團報。取消需先確認整筆團報取消，再送出可選原因；結果明確標為「待管理員審核」，不能立即顯示已取消。
 
 - [ ] **Step 4：在 Apps Script 測試部署驗收公開流程**
 
-以 GAS 開發測試部署驗證：有效課程顯示、`courseId` 預選、超過截止課程不顯示、錯誤輸入不寫入、單人／三人團報、重複報名回覆、成功頁顯示編號、Email 失敗仍能複製編號、錯誤查詢不洩露 booking 是否存在。
+以 GAS 開發測試部署驗證：有效課程顯示、`courseId` 預選、超過截止課程不顯示、錯誤輸入不寫入、單人／三人團報、重複報名回覆、成功頁顯示編號、Email 失敗或 `RATE_LIMITED`／`RATE_LIMIT_UNAVAILABLE` 時仍能複製編號、錯誤查詢不洩露 booking 是否存在。
 
 - [ ] **Step 5：提交本任務**
 

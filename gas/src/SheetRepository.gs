@@ -186,7 +186,17 @@ function insertCancellationRequest_(request) {
 
 function getSheetRecords_(sheetName) {
   var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
-  if (!sheet || sheet.getLastRow() < 2) {
+  if (!sheet) {
+    var error = new Error(
+      "Required sheet " +
+        sheetName +
+        " is missing; run initializeWorkbook_() to create it.",
+    );
+    error.name = "ConfigurationError";
+    error.code = "REQUIRED_SHEET_MISSING";
+    throw error;
+  }
+  if (sheet.getLastRow() < 2) {
     return [];
   }
 
