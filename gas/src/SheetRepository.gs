@@ -7,7 +7,23 @@ function initializeWorkbook_() {
     }
 
     var headers = SHEET_SCHEMAS_[sheetName];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    var headerRange = sheet.getRange(1, 1, 1, headers.length);
+    var existing = headerRange.getValues()[0];
+    var isBlank = existing.every(function (value) {
+      return String(value == null ? "" : value).trim() === "";
+    });
+    if (isBlank) {
+      headerRange.setValues([headers]);
+    } else if (
+      existing.some(function (value, index) {
+        return value !== headers[index];
+      })
+    ) {
+      throw new Error(
+        "Sheet " + sheetName + " has an unexpected header row; expected: " +
+          headers.join(", "),
+      );
+    }
   });
 
   var coursesSheet = spreadsheet.getSheetByName("Courses");

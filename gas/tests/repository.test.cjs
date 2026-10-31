@@ -325,3 +325,44 @@ test("Spreadsheet service errors propagate instead of returning fallback", () =>
 
   assert.throws(() => context.getCourses_(), (error) => error === serviceError);
 });
+
+test("initialization adds headers to a truly blank existing sheet", () => {
+  const sheets = { Bookings: createSheet("Bookings", [["", ""]]) };
+  const { context } = loadRepository({ sheets });
+
+  context.initializeWorkbook_();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sheets.Bookings.rows[0])),
+    expectedHeaders.Bookings,
+  );
+});
+
+test("initialization leaves exact existing headers and rows intact", () => {
+  const rows = [expectedHeaders.Bookings.slice(), ["b1", "L1"]];
+  const sheets = { Bookings: createSheet("Bookings", rows) };
+  const { context } = loadRepository({ sheets });
+
+  context.initializeWorkbook_();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.Bookings.rows)), [
+    expectedHeaders.Bookings,
+    ["b1", "L1"],
+  ]);
+});
+
+for (const [label, header] of [
+  ["missing", ["b1", "L1", "c1"]],
+  ["mismatched", ["bookingId", "wrong", "courseId"]],
+  ["reordered", expectedHeaders.Bookings.slice().reverse()],
+]) {
+  test(`initialization rejects a ${label} header without changing rows`, () => {
+    const rows = [header.slice(), ["data", "row"]];
+    const original = JSON.parse(JSON.stringify(rows));
+    const sheets = { Bookings: createSheet("Bookings", rows) };
+    const { context } = loadRepository({ sheets });
+
+    assert.throws(() => context.initializeWorkbook_(), /Bookings.*header/i);
+    assert.deepEqual(JSON.parse(JSON.stringify(sheets.Bookings.rows)), original);
+  });
+}
