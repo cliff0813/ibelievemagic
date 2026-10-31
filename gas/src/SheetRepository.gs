@@ -32,7 +32,7 @@ function initializeWorkbook_() {
 
 function getCourses_() {
   var sheet = getRegistrationSpreadsheet_().getSheetByName("Courses");
-  var lastRow = sheet.getLastRow();
+  var lastRow = sheet ? sheet.getLastRow() : 0;
   if (lastRow < 2) {
     return FALLBACK_COURSES.map(normalizeCourse_);
   }

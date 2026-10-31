@@ -182,6 +182,29 @@ test("an empty Courses sheet returns fallback courses in the canonical schema", 
   );
 });
 
+test("a missing Courses sheet returns fallback courses in the canonical schema", () => {
+  const { context } = loadRepository({
+    fallback: [{ id: "fallback-course", title: "Fallback", date: "2026-11-17" }],
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.getCourses_())),
+    [
+      {
+        courseId: "fallback-course",
+        title: "Fallback",
+        date: "2026-11-17",
+        startTime: "",
+        endTime: "",
+        location: "",
+        mode: "",
+        image: "",
+        manualRegistrationMode: "AUTO",
+      },
+    ],
+  );
+});
+
 test("usable Courses rows are returned without adding fallback courses", () => {
   const fallback = [{ id: "fallback-course" }];
   const { context } = loadRepository({
