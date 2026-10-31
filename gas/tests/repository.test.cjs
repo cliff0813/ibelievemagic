@@ -144,8 +144,16 @@ test("initialization imports fallback courses only once", () => {
   assert.equal(sheets.Courses.rows[1][8], "AUTO");
 });
 
-test("an empty Courses sheet returns fallback without mixing in unusable rows", () => {
-  const fallback = [{ id: "fallback-course", title: "Fallback" }];
+test("an empty Courses sheet returns fallback courses in the canonical schema", () => {
+  const fallback = [
+    {
+      id: "fallback-course",
+      title: "Fallback",
+      date: "2026-11-17",
+      image: "fallback-image",
+      description: "JSON-only description",
+    },
+  ];
   const { context } = loadRepository({
     sheets: {
       Courses: createSheet("Courses", [
@@ -158,7 +166,19 @@ test("an empty Courses sheet returns fallback without mixing in unusable rows", 
 
   assert.deepEqual(
     JSON.parse(JSON.stringify(context.getCourses_())),
-    fallback,
+    [
+      {
+        courseId: "fallback-course",
+        title: "Fallback",
+        date: "2026-11-17",
+        startTime: "",
+        endTime: "",
+        location: "",
+        mode: "",
+        image: "fallback-image",
+        manualRegistrationMode: "AUTO",
+      },
+    ],
   );
 });
 
@@ -189,6 +209,64 @@ test("usable Courses rows are returned without adding fallback courses", () => {
         manualRegistrationMode: "AUTO",
       },
     ],
+  );
+});
+
+test("blank manual registration mode defaults to AUTO and valid values are preserved", () => {
+  const { context } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        ["blank-mode", "Blank mode", "2026-11-17", "", "", "", "", "", ""],
+        ["open-mode", "Open mode", "2026-11-17", "", "", "", "", "", "OPEN"],
+        [
+          "closed-mode",
+          "Closed mode",
+          "2026-11-17",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "CLOSED",
+        ],
+      ]),
+    },
+  });
+
+  assert.deepEqual(
+    context.getCourses_().map((course) => course.manualRegistrationMode),
+    ["AUTO", "OPEN", "CLOSED"],
+  );
+});
+
+test("a usable sheet course with unknown manual mode throws a course-data error", () => {
+  const { context } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        [
+          "invalid-mode",
+          "Invalid mode",
+          "2026-11-17",
+          "13:30",
+          "16:30",
+          "Hall",
+          "In person",
+          "",
+          "SOMETHING_ELSE",
+        ],
+      ]),
+    },
+    fallback: [{ id: "fallback-course", title: "Fallback" }],
+  });
+
+  assert.throws(
+    () => context.getCourses_(),
+    (error) =>
+      error.name === "CourseDataError" &&
+      error.code === "INVALID_MANUAL_REGISTRATION_MODE" &&
+      /invalid-mode/.test(error.message),
   );
 });
 

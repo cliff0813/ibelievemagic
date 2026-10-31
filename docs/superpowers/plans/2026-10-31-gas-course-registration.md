@@ -148,7 +148,7 @@ AuditLog: eventId,actorEmail,action,recordId,createdAt
 
 `initializeWorkbook_()` 建立缺少的分頁／表頭；Courses 為空時只在初始化流程將 fallback 課程匯入一次，管理員從 Apps Script 編輯器手動執行。公開讀取時若 Courses 為空則即時用 fallback；若讀取例外則向上拋出。Repository 僅負責資料 I/O，不含報名規則。
 
-`bookingId` 是系統內部主鍵；以 `Utilities.getUuid()` 產生的唯一 `lookupCode` 是學員看到、收到 Email 並輸入的「報名編號」，查詢條件固定為 `lookupCode + leaderPhone`。`manualRegistrationMode` 空值代表 `AUTO`；只接受 `AUTO`、`OPEN`、`CLOSED`，其他值視為課程資料錯誤並停止報名。
+Bookings schema 在 Task 2 只定義 `bookingId` 與 `lookupCode` 欄位；repository 僅負責資料 I/O，不產生識別碼或處理查詢。`manualRegistrationMode` 空值代表 `AUTO`；只接受 `AUTO`、`OPEN`、`CLOSED`，其他值視為課程資料錯誤並停止報名。
 
 - [ ] **Step 4：執行 fallback 與 repository 測試**
 
@@ -185,9 +185,11 @@ Expected: FAIL，因 `RegistrationService.gs` 尚未實作服務函式。
 
 以 `LockService.getScriptLock().waitLock(...)` 保護重新讀課程狀態、重複檢查及寫入。依序建立 `PROCESSING` Booking、批次寫入 Participants、成功後將 Booking 改為 `SUBMITTED`；若任何寫入失敗，嘗試標記 `FAILED`，回傳明確錯誤且絕不呈現成功。只對 `SUBMITTED`／`CANCELLATION_PENDING` booking 的參加者做重複檢查。成功寫入後再寄確認信；寄信失敗時保留已建立資料及 lookup code，更新 `confirmationEmailStatus` 並將可複製的報名編號回傳前端。
 
+建立 Booking 時，系統內部 `bookingId` 與學員看到、收到 Email 並輸入的 `lookupCode` 均以 `Utilities.getUuid()` 產生。
+
 - [ ] **Step 4：實作 `lookupBooking(lookupCode, leaderPhone)` 與 `requestCancellation(lookupCode, leaderPhone, reason)`**
 
-`lookupBooking(lookupCode, leaderPhone)` 與 `requestCancellation(lookupCode, leaderPhone, reason)` 都必須以報名編號及正規化團主手機精確比對。查詢只回傳相符的團報欄位；不存在、手機錯誤或代碼錯誤使用同一回應。取消只接受尚未取消且沒有待審申請的 booking，新增 `PENDING` request 並把 Booking 設為 `CANCELLATION_PENDING`，不刪除任何資料。
+`lookupBooking(lookupCode, leaderPhone)` 與 `requestCancellation(lookupCode, leaderPhone, reason)` 都必須以 `lookupCode + leaderPhone` 精確比對，其中團主手機須先正規化。查詢只回傳相符的團報欄位；不存在、手機錯誤或代碼錯誤使用同一回應。取消只接受尚未取消且沒有待審申請的 booking，新增 `PENDING` request 並把 Booking 設為 `CANCELLATION_PENDING`，不刪除任何資料。
 
 - [ ] **Step 5：執行服務測試並提交**
 

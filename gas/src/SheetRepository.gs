@@ -34,7 +34,7 @@ function getCourses_() {
   var sheet = getRegistrationSpreadsheet_().getSheetByName("Courses");
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return FALLBACK_COURSES.slice();
+    return FALLBACK_COURSES.map(normalizeCourse_);
   }
 
   var headers = SHEET_SCHEMAS_.Courses;
@@ -65,7 +65,46 @@ function getCourses_() {
       );
     });
 
-  return courses.length > 0 ? courses : FALLBACK_COURSES.slice();
+  return courses.length > 0
+    ? courses.map(normalizeCourse_)
+    : FALLBACK_COURSES.map(normalizeCourse_);
+}
+
+function normalizeCourse_(course) {
+  var normalized = {};
+  SHEET_SCHEMAS_.Courses.forEach(function (header) {
+    var value =
+      header === "courseId"
+        ? course.courseId || course.id || ""
+        : course[header];
+    normalized[header] = value == null ? "" : value;
+  });
+
+  var manualMode = normalized.manualRegistrationMode;
+  if (
+    manualMode == null ||
+    (typeof manualMode === "string" && manualMode.trim() === "")
+  ) {
+    manualMode = "AUTO";
+    normalized.manualRegistrationMode = manualMode;
+  }
+  if (
+    manualMode !== "AUTO" &&
+    manualMode !== "OPEN" &&
+    manualMode !== "CLOSED"
+  ) {
+    var error = new Error(
+      "Invalid manualRegistrationMode for course " +
+        normalized.courseId +
+        ": " +
+        manualMode,
+    );
+    error.name = "CourseDataError";
+    error.code = "INVALID_MANUAL_REGISTRATION_MODE";
+    throw error;
+  }
+
+  return normalized;
 }
 
 function getRegistrationSpreadsheet_() {
