@@ -2,6 +2,17 @@ function initializeWorkbook_() {
   var spreadsheet = getRegistrationSpreadsheet_();
   Object.keys(SHEET_SCHEMAS_).forEach(function (sheetName) {
     var sheet = spreadsheet.getSheetByName(sheetName);
+    var headers = SHEET_SCHEMAS_[sheetName];
+    if (sheet && sheet.getLastColumn() > headers.length) {
+      throw new Error(
+        "Sheet " + sheetName + " has an unexpected header row; expected: " +
+          headers.join(", "),
+      );
+    }
+  });
+
+  Object.keys(SHEET_SCHEMAS_).forEach(function (sheetName) {
+    var sheet = spreadsheet.getSheetByName(sheetName);
     if (!sheet) {
       sheet = spreadsheet.insertSheet(sheetName);
     }

@@ -363,6 +363,32 @@ test("initialization leaves exact existing headers and rows intact", () => {
   ]);
 });
 
+test("initialization rejects data beyond the schema when its header is blank", () => {
+  const rows = [
+    expectedHeaders.Bookings.slice(),
+    ["b1", "L1", "", "", "", "", "", "", "", "", "unexpected"],
+  ];
+  const sheets = Object.fromEntries(
+    Object.keys(expectedHeaders).map((name) => [name, createSheet(name)]),
+  );
+  sheets.Bookings = createSheet("Bookings", rows);
+  const original = Object.fromEntries(
+    Object.entries(sheets).map(([name, sheet]) => [
+      name,
+      JSON.parse(JSON.stringify(sheet.rows)),
+    ]),
+  );
+  const { context } = loadRepository({ sheets });
+
+  assert.throws(() => context.initializeWorkbook_(), /Bookings.*header/i);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(sheets).map(([name, sheet]) => [name, sheet.rows]),
+    ),
+    original,
+  );
+});
+
 for (const [label, header] of [
   ["missing", ["b1", "L1", "c1"]],
   ["mismatched", ["bookingId", "wrong", "courseId"]],
