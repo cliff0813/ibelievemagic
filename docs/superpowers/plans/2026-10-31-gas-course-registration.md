@@ -90,7 +90,7 @@ Expected: FAIL，測試可載入空的 `Domain.gs`，但被測函式尚未定義
 
 - [ ] **Step 3：補齊 GAS 與測試設定**
 
-補上 `test`、`sync:fallback`、`push` scripts，並將 `@google/clasp` 列為本地開發依賴。`gas/src/appsscript.json` 設定 `runtimeVersion: "V8"`、`timeZone: "Asia/Taipei"`、必要的 Sheets、Email 及登入者 Email scopes。`gas/.gitignore` 忽略 `/.clasp.json`；範例檔只說明 `rootDir` 指向 `src`，不放任何實際 Script ID。
+補上 `test`、`push` scripts（`sync:fallback` 留待 Task 2 隨 fallback 產生器加入），並將 `@google/clasp` 列為本地開發依賴。`gas/src/appsscript.json` 設定 `runtimeVersion: "V8"`、`timeZone: "Asia/Taipei"`、必要的 Sheets、Email 及登入者 Email scopes。`gas/.gitignore` 忽略 `/.clasp.json`；範例檔只說明 `rootDir` 指向 `src`，不放任何實際 Script ID。
 
 - [ ] **Step 4：安裝本地開發工具**
 
@@ -136,7 +136,7 @@ Expected: fallback 與 repository 測試失敗，因產生器與 repository 尚�
 
 - [ ] **Step 3：實作 fallback 產生器及分頁 schema**
 
-產生器使用 Node 內建 `fs`、`path`，固定排序及格式化 JSON，輸出到 `gas/src/FallbackCourses.gs`。Schema 一次定義以下 headers，repository 和管理頁共用同一份欄位定義：
+產生器使用 Node 內建 `fs`、`path`，固定排序及格式化 JSON，輸出到 `gas/src/FallbackCourses.gs`。同時修改 `gas/package.json`，新增 `"sync:fallback": "node scripts/sync-fallback.mjs"` script。Schema 一次定義以下 headers，repository 和管理頁共用同一份欄位定義：
 
 ```text
 Courses: courseId,title,date,startTime,endTime,location,mode,image,manualRegistrationMode
