@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ce9e111d-3aaf-41ae-9d59-057686c9cf69",
+    "title": "科技驗屋- 房子買回來,才發現漏水、裂縫、施工瑕疵? 別等交屋後才後悔!",
+    "image": "https://alqezchxlyibxbwgabnn.supabase.co/storage/v1/object/public/course-images/dm/1792387149584-tm0aho.webp",
+    "date": "2026-11-17",
+    "startTime": "13:30",
+    "endTime": "16:30",
+    "instructor": "林信揚建築師",
+    "description": "💡 買房幾百萬、幾千萬,驗屋卻不能只靠「肉眼看一看」。學會正確的驗屋觀念,讓你在交屋前多一雙專業的眼睛,少一個日後花大錢修繕的風險!📣 適合:購屋族|房仲|代銷|地產從業人員|想了解驗屋實務者",
+    "price": 2000,
+    "url": "https://ibelievemagic.tw/courses/ce9e111d-3aaf-41ae-9d59-057686c9cf69"
+  },
+  {
+    "id": "17151f93-6278-4a3e-a240-a5aedd88c66e",
+    "title": "地產隱形金礦:公設保留地開發與實務全攻略。近20年專家帶路,教你突破業務瓶頸的藍海戰術!",
+    "image": "https://alqezchxlyibxbwgabnn.supabase.co/storage/v1/object/public/course-images/dm/1792387127489-dirmzq.webp",
+    "date": "2026-11-19",
+    "startTime": "13:30",
+    "endTime": "16:30",
+    "instructor": "林永豐",
+    "description": "中古屋交易越來越難、成交量萎縮?本課程專為房仲與土地開發人員量身打造,由近20年地產資深專家親授,從調閱圖資鎖定可用標的、突破地主心防拿到專任委託,到安全避坑與買家撮合變現。適合:中古屋/新成屋房仲、土地開發人員、地產投資與資產顧問。",
+    "price": 2000,
+    "url": "https://ibelievemagic.tw/courses/17151f93-6278-4a3e-a240-a5aedd88c66e"
+  },
+  {
+    "id": "c9d9698f-d734-47c7-a1d7-7511615d0c7a",
+    "title": "讓自主危老重建變簡單:AI實戰與全案執行。打造老屋新生的黃金金鑰,告別建商抽成,用 AI 科技輕鬆掌握自己的家園重建!",
+    "image": "https://alqezchxlyibxbwgabnn.supabase.co/storage/v1/object/public/course-images/dm/1792387034734-m1o2n6.webp",
+    "date": "2026-11-25",
+    "startTime": "13:30",
+    "endTime": "16:30",
+    "instructor": "彭方石",
+    "description": "老屋想重建卻擔心建商合建條款暗藏陷阱?課程涵蓋政策與圖說實戰解析、AI 科技試算重建成本與投報率、銀行專案融資與信託機制,以及全案管理(PCM)落地攻略。適合:老屋屋主/地主、房仲、地政士、危老推動師、建築與室內設計師。",
+    "price": 2000,
+    "url": "https://ibelievemagic.tw/courses/c9d9698f-d734-47c7-a1d7-7511615d0c7a"
+  },
+  {
+    "id": "c28f6abb-2fe5-41bd-ab45-21838c169638",
+    "title": "《工業不動產開發交易實戰》從工業用地、產業園區到廠房交易,一次掌握開發、查核、估價、契約與風險",
+    "image": "https://alqezchxlyibxbwgabnn.supabase.co/storage/v1/object/public/course-images/dm/1792387015219-dtcwdc.webp",
+    "date": "2026-11-26",
+    "startTime": "09:30",
+    "endTime": "16:30",
+    "instructor": "王世隆",
+    "description": "從工業用地、產業園區到廠房交易,一次掌握開發、查核、估價、契約與風險。",
+    "price": 4500,
+    "url": "https://ibelievemagic.tw/courses/c28f6abb-2fe5-41bd-ab45-21838c169638"
+  },
+  {
+    "id": "bb6edb4a-3ac9-4f0e-8169-2154b5e3ae5b",
+    "title": "從成交到長期收益:租管售一條龍實務班",
+    "image": "https://alqezchxlyibxbwgabnn.supabase.co/storage/v1/object/public/course-images/dm/1792386998362-f1o8ei.webp",
+    "date": "2026-11-27",
+    "startTime": "09:30",
+    "endTime": "16:30",
+    "instructor": "李婕絲 Jess|租管實戰派",
+    "description": "只做成交,收入就停在成交那一刻?本課程帶你搞懂租管售一條龍的趨勢與商業模式、服務流程設計、租賃與代管實務、代管收益算法、AI 導入,並現場畫出「我的租管售服務藍圖」。適合:房仲店東與經紀人、包租代管業者。",
+    "price": 4000,
+    "url": "https://ibelievemagic.tw/courses/bb6edb4a-3ac9-4f0e-8169-2154b5e3ae5b"
+  }
+]

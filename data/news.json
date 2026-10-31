@@ -1,0 +1,29 @@
+[
+  {
+    "id": "news-001",
+    "title": "央行維持政策利率不變,房貸利率短期持穩",
+    "summary": "理監事會議決議維持利率,市場預期房貸成本短期波動有限。",
+    "source": "範例新聞來源",
+    "url": "https://example.com/news/1",
+    "category": "finance",
+    "publishedAt": "2026-10-30T09:00:00+08:00"
+  },
+  {
+    "id": "news-002",
+    "title": "9 月全國買賣移轉棟數月增 4%,北部成長明顯",
+    "summary": "六都中以新北、桃園增幅最大,中南部則持平。",
+    "source": "範例新聞來源",
+    "url": "https://example.com/news/2",
+    "category": "market",
+    "publishedAt": "2026-10-28T10:30:00+08:00"
+  },
+  {
+    "id": "news-003",
+    "title": "預售屋實價登錄新制上路,資訊揭露更完整",
+    "summary": "新制要求建案揭露更多交易細節,提升市場透明度。",
+    "source": "範例新聞來源",
+    "url": "https://example.com/news/3",
+    "category": "policy",
+    "publishedAt": "2026-10-25T14:00:00+08:00"
+  }
+]

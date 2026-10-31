@@ -1,0 +1,61 @@
+[
+  {
+    "id": "art-001",
+    "slug": "land-registration-inheritance-guide",
+    "title": "繼承登記完整流程:從戶謄到領取權狀",
+    "excerpt": "一次看懂繼承登記所需文件、申請期限、遺產稅證明與常見退件原因。",
+    "category": "land-administration",
+    "tags": ["繼承", "登記", "地政"],
+    "publishedAt": "2026-10-20",
+    "updatedAt": "2026-10-25",
+    "author": "inst-002",
+    "readingMinutes": 8,
+    "body": [
+      { "type": "h2", "id": "prepare", "text": "一、準備文件" },
+      { "type": "p", "text": "申請繼承登記前,須備妥被繼承人除戶謄本、繼承系統表、繼承人現戶戶籍謄本及遺產稅繳(免)納證明書。" },
+      { "type": "h2", "id": "apply", "text": "二、向地政事務所申請" },
+      { "type": "p", "text": "繼承開始後,應於 6 個月內申請登記,逾期可能被處以登記費罰鍰。實際依主管機關最新規定為準。" },
+      { "type": "h2", "id": "rejected", "text": "三、常見退件原因" },
+      { "type": "ul", "items": ["戶籍文件缺漏", "繼承人未全體同意之分割協議", "遺產稅證明書日期不符"] }
+    ],
+    "related": ["art-002", "art-003"]
+  },
+  {
+    "id": "art-002",
+    "slug": "house-land-tax-planning-basics",
+    "title": "房地合一稅 2.0 持有期間與節稅規劃",
+    "excerpt": "說明持有期間稅率差異、自住優惠與常見規劃誤區。",
+    "category": "tax-planning",
+    "tags": ["房地合一稅", "稅務"],
+    "publishedAt": "2026-10-05",
+    "updatedAt": "2026-10-05",
+    "author": "inst-001",
+    "readingMinutes": 6,
+    "body": [
+      { "type": "h2", "id": "rates", "text": "一、持有期間與稅率" },
+      { "type": "p", "text": "依持有期間長短適用不同稅率,持有越久稅率越低。" },
+      { "type": "h2", "id": "exemption", "text": "二、自住優惠" },
+      { "type": "p", "text": "符合設籍與居住條件者,可適用較高免稅額與較低稅率。" }
+    ],
+    "related": ["art-001", "art-003"]
+  },
+  {
+    "id": "art-003",
+    "slug": "sale-contract-legal-faq",
+    "title": "不動產買賣契約 7 個常見法律問答",
+    "excerpt": "定金、違約金、瑕疵擔保與履約保證的關鍵觀念。",
+    "category": "legal-faq",
+    "tags": ["買賣契約", "法律"],
+    "publishedAt": "2026-09-18",
+    "updatedAt": "2026-09-30",
+    "author": "inst-002",
+    "readingMinutes": 7,
+    "body": [
+      { "type": "h2", "id": "deposit", "text": "Q1:定金可以全額沒收嗎?" },
+      { "type": "p", "text": "違約金過高時,法院得酌減;具體金額應以契約及個案認定為準。" },
+      { "type": "h2", "id": "defect", "text": "Q2:交屋後發現漏水怎麼辦?" },
+      { "type": "p", "text": "可依物之瑕疵擔保請求修補、減價或解約,並應保存通知與鑑定證據。" }
+    ],
+    "related": ["art-001", "art-002"]
+  }
+]
