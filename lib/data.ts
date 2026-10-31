@@ -9,6 +9,11 @@ export type NewsItem = (typeof newsJson)[number];
 export type Instructor = (typeof instructorsJson)[number];
 export type Block = { type: string; id?: string; text?: string; items?: string[] };
 
+export function formatCourseDateLong(date: string) {
+  const d = new Date(`${date}T00:00:00+08:00`);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日星期${"日一二三四五六"[d.getDay()]}`;
+}
+
 export function formatCourseDate(date: string) {
   const d = new Date(`${date}T00:00:00+08:00`);
   const w = "日一二三四五六"[d.getDay()];
@@ -24,6 +29,9 @@ export const articleCategories: Record<string, string> = {
 // Swap these for CMS/API fetches later; pages only depend on the signatures.
 export async function getCourses(): Promise<Course[]> {
   return [...coursesJson].sort((a, b) => a.date.localeCompare(b.date));
+}
+export async function getCourseById(id: string): Promise<Course | undefined> {
+  return coursesJson.find((c) => c.id === id);
 }
 export async function getArticles(): Promise<Article[]> {
   return [...articlesJson].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));

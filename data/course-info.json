@@ -1,0 +1,25 @@
+{
+  "registrationSteps": [
+    "填寫線上報名表,點選「確認報名」送出(座位有限,額滿為止)。",
+    "依下方匯款資訊完成轉帳,並透過官方 LINE 告知「末五碼或匯款姓名」。",
+    "報名與課程問題請至官方 LINE 詢問,或撥打客服電話。"
+  ],
+  "pricingNote": "報名時系統會自動套用最優惠價格(不疊加)。團報(3 人以上)請在報名時勾選並填寫團員,由團主一次繳納全額。",
+  "bank": {
+    "name": "永豐銀行 南台中分行(代號 807)",
+    "account": "038-018-0022056-1",
+    "holder": "相信學苑有限公司"
+  },
+  "contact": {
+    "phone": "0908-016000",
+    "contactName": "林先生",
+    "hours": "星期一～五 08:30-17:30",
+    "lineUrl": "https://line.me/R/ti/p/@952lfrvn",
+    "lineId": "@ibelievemagic",
+    "refundNote": "退費等常見問題請見官方 LINE 首頁。"
+  },
+  "online": {
+    "description": "使用 Zoom 同步直播授課,不受地區限制;手機/平板上課請事先下載 Zoom APP。",
+    "downloadUrl": "https://zoom.us/download"
+  }
+}
