@@ -4,6 +4,8 @@ function submitBooking(payload) {
     throw new Error("Invalid booking input: " + validation.errors.join(", "));
   }
 
+  var bookingId = Utilities.getUuid();
+  var lookupCode = Utilities.getUuid();
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -44,8 +46,6 @@ function submitBooking(payload) {
       throw new Error("Duplicate registration: this contact is already registered");
     }
 
-    var bookingId = Utilities.getUuid();
-    var lookupCode = Utilities.getUuid();
     var booking = {
       bookingId: bookingId,
       lookupCode: lookupCode,
@@ -88,50 +88,61 @@ function submitBooking(payload) {
       }
       throw new Error("Registration persistence failed: " + error.message);
     }
-
-    var confirmationEmailStatus = "SENT";
-    try {
-      MailApp.sendEmail({
-        to: payload.leaderEmail,
-        subject: "課程報名確認",
-        body:
-          "您的報名已完成。\n報名查詢代碼：" +
-          lookupCode +
-          "\n請保存此代碼以查詢或申請取消。",
-      });
-    } catch (mailError) {
-      confirmationEmailStatus = "FAILED";
-    }
-    try {
-      updateBooking_(bookingId, {
-        confirmationEmailStatus: confirmationEmailStatus,
-      });
-    } catch (statusError) {
-      var statusFailure =
-        "Registration was saved, but confirmation email status could not be recorded: " +
-        statusError.message;
-      try {
-        updateBooking_(bookingId, { status: "FAILED" });
-      } catch (markError) {
-        statusFailure += "; could not mark booking FAILED: " + markError.message;
-      }
-      throw new Error(
-        statusFailure,
-      );
-    }
-
-    return {
-      success: true,
-      lookupCode: lookupCode,
-      confirmationEmailStatus: confirmationEmailStatus,
-      message:
-        confirmationEmailStatus === "SENT"
-          ? "Registration submitted"
-          : "Registration submitted, but confirmation email delivery failed",
-    };
   } finally {
     lock.releaseLock();
   }
+
+  var confirmationEmailStatus = "SENT";
+  try {
+    MailApp.sendEmail({
+      to: payload.leaderEmail,
+      subject: "課程報名確認",
+      body:
+        "您的報名已完成。\n報名查詢代碼：" +
+        lookupCode +
+        "\n請保存此代碼以查詢或申請取消。",
+    });
+  } catch (mailError) {
+    confirmationEmailStatus = "FAILED";
+  }
+
+  var emailStatusRecorded = true;
+  var statusError = null;
+  var statusLock = null;
+  try {
+    statusLock = LockService.getScriptLock();
+    statusLock.waitLock(30000);
+    updateBooking_(bookingId, {
+      confirmationEmailStatus: confirmationEmailStatus,
+    });
+  } catch (error) {
+    emailStatusRecorded = false;
+    statusError = error;
+  } finally {
+    if (statusLock) {
+      try {
+        statusLock.releaseLock();
+      } catch (releaseError) {}
+    }
+  }
+
+  var message =
+    confirmationEmailStatus === "SENT"
+      ? "Registration submitted"
+      : "Registration submitted, but confirmation email delivery failed";
+  if (!emailStatusRecorded) {
+    message +=
+      ". Warning: confirmation email status could not be recorded: " +
+      statusError.message +
+      ". Please save the lookup code.";
+  }
+  return {
+    success: true,
+    lookupCode: lookupCode,
+    confirmationEmailStatus: confirmationEmailStatus,
+    confirmationEmailStatusRecorded: emailStatusRecorded,
+    message: message,
+  };
 }
 
 function lookupBooking(lookupCode, leaderPhone) {

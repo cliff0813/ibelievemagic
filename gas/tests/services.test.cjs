@@ -84,6 +84,7 @@ function createHarness({
     MailApp: {
       sendEmail: (message) => {
         state.mail.push(message);
+        state.lockReleasedAtMail = state.lockReleased;
         if (failMailer) throw new Error("Mail delivery failed");
       },
     },
@@ -148,8 +149,9 @@ test("報名成功時寫入一筆 Booking 與所有 Participants", () => {
   assert.equal(result.lookupCode, "uuid-2");
   assert.equal("bookingId" in result, false);
   assert.equal(result.confirmationEmailStatus, "SENT");
-  assert.equal(state.lockAcquired, 1);
-  assert.equal(state.lockReleased, 1);
+  assert.equal(state.lockReleasedAtMail, 1);
+  assert.equal(state.lockAcquired, 2);
+  assert.equal(state.lockReleased, 2);
 });
 
 test("報名時同課程日期已有電話或 Email 重複就拒絕", () => {
@@ -378,15 +380,19 @@ test("確認信失敗不回滾報名並回傳可複製代碼及信件狀態", ()
   assert.equal(result.confirmationEmailStatus, "FAILED");
 });
 
-test("報名確認信狀態寫入失敗時標記 FAILED 並回報明確錯誤", () => {
+test("報名確認信狀態寫入失敗時保留 SUBMITTED 並回傳明確警告", () => {
   const { context, state } = createHarness({
     failConfirmationStatusWrite: true,
   });
 
-  assert.throws(
-    () => context.submitBooking(validPayload()),
-    /confirmation email status could not be recorded/i,
-  );
-  assert.equal(state.bookings[0].status, "FAILED");
-  assert.equal(state.lockReleased, 1);
+  const result = context.submitBooking(validPayload());
+
+  assert.equal(state.bookings[0].status, "SUBMITTED");
+  assert.equal(result.success, true);
+  assert.equal(result.lookupCode, state.bookings[0].lookupCode);
+  assert.equal(result.confirmationEmailStatus, "SENT");
+  assert.equal(result.confirmationEmailStatusRecorded, false);
+  assert.match(result.message, /confirmation email status could not be recorded/i);
+  assert.equal(state.lockAcquired, 2);
+  assert.equal(state.lockReleased, 2);
 });
