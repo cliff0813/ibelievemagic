@@ -350,6 +350,41 @@ test("initialization adds headers to a truly blank existing sheet", () => {
   );
 });
 
+test("repository writes strings beginning with equals as literal sheet values", () => {
+  const { context, sheets } = loadRepository();
+  context.initializeWorkbook_();
+
+  context.insertBooking_({
+    bookingId: "b1",
+    lookupCode: "l1",
+    courseId: "c1",
+    courseDate: "2099-12-01",
+    leaderName: "=IMPORTXML(\"https://example.invalid\", \"//title\")",
+    leaderPhone: "0912345678",
+    leaderEmail: "leader@example.com",
+    status: "PROCESSING",
+    createdAt: "now",
+    confirmationEmailStatus: "PENDING",
+  });
+  context.updateBooking_("b1", { leaderName: "=SUM(1, 1)" });
+  context.insertCancellationRequest_({
+    requestId: "r1",
+    bookingId: "b1",
+    reason: "=HYPERLINK(\"https://example.invalid\")",
+    status: "PENDING",
+    requestedAt: "now",
+    reviewedBy: "",
+    reviewedAt: "",
+    notificationEmailStatus: "PENDING",
+  });
+
+  assert.equal(sheets.Bookings.rows[1][4], "'=SUM(1, 1)");
+  assert.equal(
+    sheets.CancellationRequests.rows[1][2],
+    "'=HYPERLINK(\"https://example.invalid\")",
+  );
+});
+
 test("initialization leaves exact existing headers and rows intact", () => {
   const rows = [expectedHeaders.Bookings.slice(), ["b1", "L1"]];
   const sheets = { Bookings: createSheet("Bookings", rows) };

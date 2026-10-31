@@ -146,3 +146,120 @@ function getRegistrationSpreadsheet_() {
   }
   return SpreadsheetApp.getActiveSpreadsheet();
 }
+
+function getBookings_() {
+  return getSheetRecords_("Bookings");
+}
+
+function getParticipants_() {
+  return getSheetRecords_("Participants");
+}
+
+function getCancellationRequests_() {
+  return getSheetRecords_("CancellationRequests");
+}
+
+function insertBooking_(booking) {
+  appendSheetRecords_("Bookings", [booking]);
+}
+
+function insertParticipants_(participants) {
+  appendSheetRecords_("Participants", participants);
+}
+
+function updateBooking_(bookingId, updates) {
+  updateSheetRecord_("Bookings", "bookingId", bookingId, updates);
+}
+
+function updateCancellationRequest_(requestId, updates) {
+  updateSheetRecord_(
+    "CancellationRequests",
+    "requestId",
+    requestId,
+    updates,
+  );
+}
+
+function insertCancellationRequest_(request) {
+  appendSheetRecords_("CancellationRequests", [request]);
+}
+
+function getSheetRecords_(sheetName) {
+  var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return [];
+  }
+
+  var headers = SHEET_SCHEMAS_[sheetName];
+  return sheet
+    .getRange(2, 1, sheet.getLastRow() - 1, headers.length)
+    .getValues()
+    .map(function (row) {
+      var record = {};
+      headers.forEach(function (header, column) {
+        record[header] = row[column] == null ? "" : row[column];
+      });
+      return record;
+    });
+}
+
+function appendSheetRecords_(sheetName, records) {
+  if (!Array.isArray(records) || records.length === 0) {
+    return;
+  }
+
+  var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error("Sheet " + sheetName + " is not initialized");
+  }
+  var headers = SHEET_SCHEMAS_[sheetName];
+  var rows = records.map(function (record) {
+    return headers.map(function (header) {
+      return escapeSheetValue_(record[header]);
+    });
+  });
+  sheet
+    .getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length)
+    .setValues(rows);
+}
+
+function updateSheetRecord_(sheetName, key, keyValue, updates) {
+  var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error("Sheet " + sheetName + " is not initialized");
+  }
+  var headers = SHEET_SCHEMAS_[sheetName];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    throw new Error(sheetName + " record not found");
+  }
+
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var keyColumn = headers.indexOf(key);
+  var rowIndex = values.findIndex(function (row) {
+    return row[keyColumn] === keyValue;
+  });
+  if (rowIndex < 0) {
+    throw new Error(sheetName + " record not found");
+  }
+
+  var updated = values[rowIndex].slice();
+  headers.forEach(function (header, column) {
+    if (Object.prototype.hasOwnProperty.call(updates, header)) {
+      updated[column] = escapeSheetValue_(updates[header]);
+    }
+  });
+  sheet
+    .getRange(rowIndex + 2, 1, 1, headers.length)
+    .setValues([updated]);
+}
+
+function escapeSheetValue_(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string" && value.charAt(0) === "=") {
+    return "'" + value;
+  }
+  return value;
+}
