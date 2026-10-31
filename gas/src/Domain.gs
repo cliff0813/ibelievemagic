@@ -17,6 +17,10 @@ function getCourseAvailability_(courseDate, now, manualMode) {
     return "CLOSED";
   }
 
+  if (!isValidCourseDate_(courseDate)) {
+    return "CLOSED";
+  }
+
   var deadline = Date.parse(courseDate + "T00:00:00+08:00") - 2 * 86400000;
   var currentTime =
     now && typeof now.getTime === "function" ? now.getTime() : NaN;
@@ -203,7 +207,7 @@ function isValidPhone_(value) {
   if (
     typeof value !== "string" ||
     value.trim() === "" ||
-    !/^[+0-9\s().-]+$/.test(value)
+    !/^\+?[0-9\s().-]+$/.test(value)
   ) {
     return false;
   }

@@ -335,3 +335,29 @@ test("電話欄位拒絕混入字母的格式", () => {
   assert.equal(result.valid, false);
   assert.ok(Array.from(result.errors).includes("INVALID_LEADER_PHONE"));
 });
+
+function bookingWithPhone_(phone) {
+  return domain.validateBookingInput_({
+    courseId: "course-1",
+    courseDate: "2026-11-17",
+    registrationType: "INDIVIDUAL",
+    leaderName: "王小明",
+    leaderPhone: phone,
+    leaderEmail: "leader@example.com",
+    participants: [
+      { name: "王小明", phone: phone, email: "member@example.com", lineName: "" },
+    ],
+  });
+}
+
+test("電話加號只能出現在開頭且最多一個", () => {
+  assert.equal(bookingWithPhone_("0912+345678").valid, false);
+  assert.equal(bookingWithPhone_("++886912345678").valid, false);
+  assert.equal(bookingWithPhone_("+886 912-345-678").valid, true);
+});
+
+test("不存在的日曆日期視為關閉", () => {
+  const early = new Date("2026-01-01T00:00:00+08:00");
+  assert.equal(domain.getCourseAvailability_("2026-02-31", early, "AUTO"), "CLOSED");
+  assert.equal(domain.getCourseAvailability_("not-a-date", early, "AUTO"), "CLOSED");
+});
