@@ -22,6 +22,7 @@ function createHarness({
   failCancellationStatusUpdate = false,
   failMailer = false,
   failCache = false,
+  now = 0,
 } = {}) {
   const state = {
     bookings: structuredClone(bookings),
@@ -34,8 +35,15 @@ function createHarness({
     lockReleased: 0,
     mail: [],
     uuidCalls: 0,
+    now,
   };
+  class FakeDate extends Date {
+    static now() {
+      return state.now;
+    }
+  }
   const context = {
+    Date: FakeDate,
     getCourses_: () => [structuredClone(state.course)],
     getBookings_: () => state.bookings,
     getParticipants_: () =>
@@ -496,6 +504,36 @@ test("同一正規化團主 Email 每小時最多寄三封確認信", () => {
   );
   assert.ok(state.cacheKeys.every((key) => !key.includes("leader@example.com")));
   assert.equal(state.cacheExpirationSeconds, 3600);
+});
+
+test("確認信限流只計入滾動一小時內的寄送嘗試", () => {
+  const { context, state } = createHarness();
+  const results = [];
+
+  for (let index = 1; index <= 3; index += 1) {
+    state.course = {
+      ...state.course,
+      courseId: `course-${index}`,
+    };
+    results.push(
+      context.submitBooking(uniqueCoursePayload(index, "leader@example.com")),
+    );
+  }
+
+  state.now += 60 * 60 * 1000 + 1;
+  state.course = {
+    ...state.course,
+    courseId: "course-4",
+  };
+  results.push(
+    context.submitBooking(uniqueCoursePayload(4, "leader@example.com")),
+  );
+
+  assert.deepEqual(
+    results.map((result) => result.confirmationEmailStatus),
+    ["SENT", "SENT", "SENT", "SENT"],
+  );
+  assert.equal(state.mail.length, 4);
 });
 
 test("ScriptCache failure fails closed without undoing the booking or hiding its code", () => {
