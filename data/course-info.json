@@ -6,16 +6,16 @@
   ],
   "pricingNote": "報名時系統會自動套用最優惠價格(不疊加)。團報(3 人以上)請在報名時勾選並填寫團員,由團主一次繳納全額。",
   "bank": {
-    "name": "永豐銀行 南台中分行(代號 807)",
-    "account": "038-018-0022056-1",
-    "holder": "相信學苑有限公司"
+    "name": "XX銀行 台中分行(代號 000)",
+    "account": "000-000-0000000-1",
+    "holder": "桃園市信託發展協會"
   },
   "contact": {
-    "phone": "0908-016000",
-    "contactName": "林先生",
+    "phone": "0900-000000",
+    "contactName": "詹先生",
     "hours": "星期一～五 08:30-17:30",
-    "lineUrl": "https://line.me/R/ti/p/@952lfrvn",
-    "lineId": "@ibelievemagic",
+    "lineUrl": "https://line.me/R/ti/p/n",
+    "lineId": "@test",
     "refundNote": "退費等常見問題請見官方 LINE 首頁。"
   },
   "online": {
