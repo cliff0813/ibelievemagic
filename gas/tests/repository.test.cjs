@@ -389,6 +389,19 @@ test("initialization rejects data beyond the schema when its header is blank", (
   );
 });
 
+test("initialization rejects data beneath a blank header beyond the Bookings schema", () => {
+  const rows = [
+    [...expectedHeaders.Bookings, ""],
+    [...Array(expectedHeaders.Bookings.length).fill(""), "unexpected"],
+  ];
+  const original = JSON.parse(JSON.stringify(rows));
+  const sheets = { Bookings: createSheet("Bookings", rows) };
+  const { context } = loadRepository({ sheets });
+
+  assert.throws(() => context.initializeWorkbook_(), /Bookings.*header/i);
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.Bookings.rows)), original);
+});
+
 for (const [label, header] of [
   ["missing", ["b1", "L1", "c1"]],
   ["mismatched", ["bookingId", "wrong", "courseId"]],
