@@ -1,0 +1,13 @@
+{
+  "name": "ibelievemagic-gas",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "sync:fallback": "node scripts/sync-fallback.mjs",
+    "push": "clasp push"
+  },
+  "devDependencies": {
+    "@google/clasp": "^3.0.6"
+  }
+}
