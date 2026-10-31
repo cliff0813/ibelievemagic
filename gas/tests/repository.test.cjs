@@ -1,0 +1,226 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const vm = require("node:vm");
+
+const expectedHeaders = {
+  Courses: [
+    "courseId",
+    "title",
+    "date",
+    "startTime",
+    "endTime",
+    "location",
+    "mode",
+    "image",
+    "manualRegistrationMode",
+  ],
+  Bookings: [
+    "bookingId",
+    "lookupCode",
+    "courseId",
+    "courseDate",
+    "leaderName",
+    "leaderPhone",
+    "leaderEmail",
+    "status",
+    "createdAt",
+    "confirmationEmailStatus",
+  ],
+  Participants: [
+    "bookingId",
+    "courseId",
+    "courseDate",
+    "name",
+    "phone",
+    "email",
+    "lineName",
+  ],
+  CancellationRequests: [
+    "requestId",
+    "bookingId",
+    "reason",
+    "status",
+    "requestedAt",
+    "reviewedBy",
+    "reviewedAt",
+    "notificationEmailStatus",
+  ],
+  AuditLog: ["eventId", "actorEmail", "action", "recordId", "createdAt"],
+};
+
+function createSheet(name, rows = []) {
+  return {
+    name,
+    rows,
+    getLastRow() {
+      return this.rows.length;
+    },
+    getRange(row, column, rowCount = 1, columnCount = 1) {
+      return {
+        getValues: () =>
+          Array.from({ length: rowCount }, (_, rowOffset) =>
+            Array.from({ length: columnCount }, (_, columnOffset) =>
+              this.rows[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? "",
+            ),
+          ),
+        setValues: (values) => {
+          values.forEach((value, rowOffset) => {
+            this.rows[row - 1 + rowOffset] = value.slice();
+          });
+        },
+      };
+    },
+  };
+}
+
+function loadRepository({ sheets = {}, spreadsheetError, fallback = [] } = {}) {
+  const spreadsheet = {
+    getSheetByName(name) {
+      if (spreadsheetError) throw spreadsheetError;
+      return sheets[name] || null;
+    },
+    insertSheet(name) {
+      const sheet = createSheet(name);
+      sheets[name] = sheet;
+      return sheet;
+    },
+  };
+  const context = {
+    FALLBACK_COURSES: fallback,
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => spreadsheet,
+    },
+    Utilities: {
+      formatDate(date, timeZone, format) {
+        assert.equal(timeZone, "Asia/Taipei");
+        assert.equal(format, "yyyy-MM-dd");
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).formatToParts(date);
+        const part = (type) => parts.find((item) => item.type === type).value;
+        return `${part("year")}-${part("month")}-${part("day")}`;
+      },
+    },
+  };
+  vm.createContext(context);
+
+  for (const filename of ["Schema.gs", "SheetRepository.gs"]) {
+    const filePath = path.join(__dirname, "..", "src", filename);
+    if (fs.existsSync(filePath)) {
+      vm.runInContext(fs.readFileSync(filePath, "utf8"), context, { filename });
+    }
+  }
+  return { context, sheets };
+}
+
+test("initialization creates missing sheets with the shared schema headers", () => {
+  const { context, sheets } = loadRepository();
+
+  assert.equal(typeof context.initializeWorkbook_, "function");
+  context.initializeWorkbook_();
+
+  for (const [name, headers] of Object.entries(expectedHeaders)) {
+    assert.deepEqual(JSON.parse(JSON.stringify(sheets[name].rows[0])), headers);
+  }
+});
+
+test("initialization imports fallback courses only once", () => {
+  const fallback = [
+    { id: "fallback-course", title: "Fallback", date: "2026-11-17" },
+  ];
+  const { context, sheets } = loadRepository({ fallback });
+
+  context.initializeWorkbook_();
+  context.initializeWorkbook_();
+
+  assert.equal(sheets.Courses.rows.length, 2);
+  assert.equal(sheets.Courses.rows[1][0], "fallback-course");
+  assert.equal(sheets.Courses.rows[1][1], "Fallback");
+  assert.equal(sheets.Courses.rows[1][8], "AUTO");
+});
+
+test("an empty Courses sheet returns fallback without mixing in unusable rows", () => {
+  const fallback = [{ id: "fallback-course", title: "Fallback" }];
+  const { context } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        ["", "incomplete row"],
+      ]),
+    },
+    fallback,
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.getCourses_())),
+    fallback,
+  );
+});
+
+test("usable Courses rows are returned without adding fallback courses", () => {
+  const fallback = [{ id: "fallback-course" }];
+  const { context } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        ["sheet-course", "Sheet course", "2026-11-17", "13:30", "16:30", "Hall", "In person", "image", "AUTO"],
+      ]),
+    },
+    fallback,
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.getCourses_())),
+    [
+      {
+        courseId: "sheet-course",
+        title: "Sheet course",
+        date: "2026-11-17",
+        startTime: "13:30",
+        endTime: "16:30",
+        location: "Hall",
+        mode: "In person",
+        image: "image",
+        manualRegistrationMode: "AUTO",
+      },
+    ],
+  );
+});
+
+test("Google Sheets date cells are formatted in the Taiwan time zone", () => {
+  const { context } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        [
+          "sheet-course",
+          "Sheet course",
+          new Date("2026-11-16T16:00:00.000Z"),
+          "13:30",
+          "16:30",
+          "Hall",
+          "In person",
+          "",
+          "",
+        ],
+      ]),
+    },
+  });
+
+  assert.equal(context.getCourses_()[0].date, "2026-11-17");
+});
+
+test("Spreadsheet service errors propagate instead of returning fallback", () => {
+  const serviceError = new Error("Spreadsheet unavailable");
+  const { context } = loadRepository({
+    spreadsheetError: serviceError,
+    fallback: [{ id: "fallback-course" }],
+  });
+
+  assert.throws(() => context.getCourses_(), (error) => error === serviceError);
+});
