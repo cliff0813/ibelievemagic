@@ -199,23 +199,474 @@ function recoverAdminCancellationCreation(requestId) {
 }
 
 /**
- * Returns the course details needed to operate the registration switch.
+ * Returns editable course fields and ordered child content without booking data.
  *
  * @return {Array<Object>}
  */
 function listAdminCourses() {
   requireAdmin_();
 
+  var outlines = getSheetRecords_("CourseOutline");
+  var pricing = getSheetRecords_("CoursePricing");
   return getCourses_().map(function (course) {
     var pending = findPendingCourseModeIntent_(course.courseId);
     return {
       courseId: course.courseId,
       title: course.title,
       date: course.date,
+      startTime: course.startTime,
+      endTime: course.endTime,
+      location: course.location,
+      mode: course.mode,
+      image: course.image,
       manualRegistrationMode: course.manualRegistrationMode,
+      description: course.description,
+      instructor: course.instructor,
+      instructorBio: course.instructorBio,
+      outline: outlines
+        .filter(function (item) {
+          return item.courseId === course.courseId;
+        })
+        .sort(adminCourseContentOrder_)
+        .map(function (item) {
+          return item.item;
+        }),
+      pricing: pricing
+        .filter(function (item) {
+          return item.courseId === course.courseId;
+        })
+        .sort(adminCourseContentOrder_)
+        .map(function (item) {
+          return { label: item.label, price: item.price };
+        }),
       pendingRecovery: pending ? { mode: pending.mode } : null,
     };
   });
+}
+
+/**
+ * Creates a course and its linked content. The parent row is appended last so
+ * the public course list cannot expose a course before its content is ready.
+ *
+ * @param {*} payload
+ * @return {{courseId:string}}
+ */
+function createAdminCourse(payload) {
+  requireAdmin_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  var courseId = "";
+  try {
+    courseId =
+      payload && typeof payload.courseId === "string"
+        ? payload.courseId.trim()
+        : "";
+    var normalized = normalizeAdminCoursePayload_(payload, courseId, "AUTO");
+    var existing = getCourses_().filter(function (course) {
+      return course.courseId === courseId;
+    });
+    if (existing.length > 1) {
+      throw new Error("Course ID is not unique");
+    }
+    if (
+      existing.length === 1 &&
+      !adminCourseBaseFieldsMatch_(existing[0], normalized.course)
+    ) {
+      throw new Error("A different course already exists with this course ID");
+    }
+
+    replaceAdminCourseContent_(courseId, normalized);
+    if (existing.length === 0) {
+      appendSheetRecords_("Courses", [normalized.course]);
+    }
+    return { courseId: courseId };
+  } catch (error) {
+    throw adminCourseOperationError_("create", courseId, error);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Updates a course and converges its bookings and linked content to the
+ * requested state. Course ID and registration mode remain server-controlled.
+ *
+ * @param {string} courseId
+ * @param {*} payload
+ * @return {{courseId:string}}
+ */
+function updateAdminCourse(courseId, payload) {
+  requireAdmin_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  var normalizedId = typeof courseId === "string" ? courseId.trim() : "";
+  try {
+    if (!normalizedId) {
+      throw new Error("Course ID is required");
+    }
+    var current = getCourses_().filter(function (course) {
+      return course.courseId === normalizedId;
+    })[0];
+    if (!current) {
+      throw new Error("Course not found");
+    }
+
+    var normalized = normalizeAdminCoursePayload_(
+      payload,
+      normalizedId,
+      current.manualRegistrationMode,
+    );
+    getBookings_().forEach(function (booking) {
+      if (
+        booking.courseId === normalizedId &&
+        booking.courseDate !== normalized.course.date
+      ) {
+        updateBooking_(booking.bookingId, {
+          courseDate: normalized.course.date,
+        });
+      }
+    });
+    replaceAdminCourseContent_(normalizedId, normalized);
+    var courseUpdates = {};
+    ADMIN_COURSE_EDITABLE_FIELDS_.forEach(function (field) {
+      if (field !== "courseId") {
+        courseUpdates[field] = normalized.course[field];
+      }
+    });
+    updateCourse_(normalizedId, courseUpdates);
+    return { courseId: normalizedId };
+  } catch (error) {
+    throw adminCourseOperationError_("update", normalizedId, error);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Deletes a course only when no booking in any status references it. A retry
+ * after partial deletion removes remaining linked rows before the parent.
+ *
+ * @param {string} courseId
+ * @return {{courseId:string}}
+ */
+function deleteAdminCourse(courseId) {
+  requireAdmin_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  var normalizedId = typeof courseId === "string" ? courseId.trim() : "";
+  try {
+    if (!normalizedId) {
+      throw new Error("Course ID is required");
+    }
+    if (
+      getBookings_().some(function (booking) {
+        return booking.courseId === normalizedId;
+      })
+    ) {
+      throw new Error("Course cannot be deleted while bookings reference it");
+    }
+
+    var course = getCourses_().filter(function (item) {
+      return item.courseId === normalizedId;
+    })[0];
+    var hasOutline = getSheetRecords_("CourseOutline").some(function (item) {
+      return item.courseId === normalizedId;
+    });
+    var hasPricing = getSheetRecords_("CoursePricing").some(function (item) {
+      return item.courseId === normalizedId;
+    });
+    if (!course && !hasOutline && !hasPricing) {
+      return { courseId: normalizedId };
+    }
+
+    deleteSheetRecordsByValue_("CourseOutline", "courseId", normalizedId);
+    deleteSheetRecordsByValue_("CoursePricing", "courseId", normalizedId);
+    if (course) {
+      deleteSheetRecordsByValue_("Courses", "courseId", normalizedId);
+    }
+    return { courseId: normalizedId };
+  } catch (error) {
+    throw adminCourseOperationError_("delete", normalizedId, error);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+var ADMIN_COURSE_EDITABLE_FIELDS_ = [
+  "courseId",
+  "title",
+  "date",
+  "startTime",
+  "endTime",
+  "location",
+  "mode",
+  "image",
+  "description",
+  "instructor",
+  "instructorBio",
+];
+
+/**
+ * Validates and normalizes the editable course form before any sheet mutation.
+ *
+ * @param {*} payload
+ * @param {string} courseId
+ * @param {string} manualRegistrationMode
+ * @return {{course:Object,outline:Array<Object>,pricing:Array<Object>}}
+ */
+function normalizeAdminCoursePayload_(payload, courseId, manualRegistrationMode) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Course payload must be an object");
+  }
+  if (!courseId) {
+    throw new Error("Course ID is required");
+  }
+  ["title", "date", "startTime", "endTime"].forEach(function (field) {
+    if (!isNonEmptyString_(payload[field])) {
+      throw new Error("Course " + field + " is required");
+    }
+  });
+  if (!isValidCourseDate_(payload.date)) {
+    throw new Error("Course date must be a valid YYYY-MM-DD calendar date");
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(payload.startTime)) {
+    throw new Error("Course startTime must be a valid 24-hour HH:mm time");
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(payload.endTime)) {
+    throw new Error("Course endTime must be a valid 24-hour HH:mm time");
+  }
+  if (!Array.isArray(payload.outline)) {
+    throw new Error("Course outline must be an array");
+  }
+  if (!Array.isArray(payload.pricing)) {
+    throw new Error("Course pricing must be an array");
+  }
+  var outline = payload.outline.map(function (item) {
+    if (typeof item !== "string" || item.trim() === "") {
+      throw new Error("Every course outline item must be a nonempty string");
+    }
+    return item.trim();
+  });
+  var pricing = payload.pricing.map(function (item) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof item.label !== "string" ||
+      item.label.trim() === ""
+    ) {
+      throw new Error("Every course pricing item must have a nonempty label");
+    }
+    if (typeof item.price !== "number" || !isFinite(item.price)) {
+      throw new Error("Every course price must be a finite number");
+    }
+    return { label: item.label.trim(), price: item.price };
+  });
+
+  var normalizedCourse = {
+    courseId: courseId,
+    manualRegistrationMode: manualRegistrationMode || "AUTO",
+  };
+  ["title", "date", "startTime", "endTime"].forEach(function (field) {
+    normalizedCourse[field] = payload[field].trim();
+  });
+  ["location", "mode", "image", "description", "instructor", "instructorBio"]
+    .forEach(function (field) {
+      var value = payload[field];
+      normalizedCourse[field] =
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+          ? String(value)
+          : "";
+    });
+  if (
+    normalizedCourse.image !== "" &&
+    !isAbsoluteAdminCourseImageUrl_(normalizedCourse.image)
+  ) {
+    throw new Error("Course image must be a complete absolute HTTP(S) URL");
+  }
+
+  return {
+    course: normalizedCourse,
+    outline: outline.map(function (item, index) {
+      return { courseId: courseId, sortOrder: index + 1, item: item };
+    }),
+    pricing: pricing.map(function (item, index) {
+      return {
+        courseId: courseId,
+        sortOrder: index + 1,
+        label: item.label,
+        price: item.price,
+      };
+    }),
+  };
+}
+
+function isAbsoluteAdminCourseImageUrl_(value) {
+  if (
+    value !== value.trim() ||
+    /[\s\\\u0000-\u001f\u007f]/.test(value)
+  ) {
+    return false;
+  }
+  var match = /^https?:\/\/([^/?#]+)(?:[/?#][^\s]*)?$/i.exec(value);
+  if (!match || match[1].indexOf("@") >= 0) {
+    return false;
+  }
+
+  var authority = match[1];
+  var hostname;
+  var port = "";
+  var hasPort = false;
+  if (authority.charAt(0) === "[") {
+    var closeBracket = authority.indexOf("]");
+    if (closeBracket < 0) {
+      return false;
+    }
+    hostname = authority.slice(1, closeBracket);
+    var remainder = authority.slice(closeBracket + 1);
+    if (remainder !== "") {
+      if (remainder.charAt(0) !== ":") {
+        return false;
+      }
+      hasPort = true;
+      port = remainder.slice(1);
+    }
+    if (!isValidAdminCourseIpv6_(hostname)) {
+      return false;
+    }
+  } else {
+    var colon = authority.lastIndexOf(":");
+    if (colon >= 0) {
+      if (authority.indexOf(":") !== colon) {
+        return false;
+      }
+      hasPort = true;
+      hostname = authority.slice(0, colon);
+      port = authority.slice(colon + 1);
+    } else {
+      hostname = authority;
+    }
+    if (!isValidAdminCourseHostname_(hostname)) {
+      return false;
+    }
+  }
+
+  return (
+    !hasPort ||
+    (/^\d{1,5}$/.test(port) && Number(port) <= 65535)
+  );
+}
+
+function isValidAdminCourseHostname_(hostname) {
+  if (
+    hostname === "" ||
+    hostname.length > 253 ||
+    hostname.indexOf("%") >= 0
+  ) {
+    return false;
+  }
+  if (/^\d+(?:\.\d+){3}$/.test(hostname)) {
+    return hostname.split(".").every(function (part) {
+      return Number(part) <= 255;
+    });
+  }
+
+  var normalized = hostname.charAt(hostname.length - 1) === "."
+    ? hostname.slice(0, -1)
+    : hostname;
+  if (normalized === "") {
+    return false;
+  }
+  return normalized.split(".").every(function (label) {
+    return (
+      label.length <= 63 &&
+      /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label)
+    );
+  });
+}
+
+function isValidAdminCourseIpv6_(hostname) {
+  if (
+    hostname.indexOf(":") < 0 ||
+    !/^[0-9A-Fa-f:.]+$/.test(hostname) ||
+    hostname.indexOf(":::") >= 0
+  ) {
+    return false;
+  }
+  var compressed = hostname.indexOf("::") >= 0;
+  if (compressed && hostname.indexOf("::") !== hostname.lastIndexOf("::")) {
+    return false;
+  }
+  var groups = hostname.split(":").filter(function (group) {
+    return group !== "";
+  });
+  var count = 0;
+  for (var index = 0; index < groups.length; index += 1) {
+    if (groups[index].indexOf(".") >= 0) {
+      if (
+        index !== groups.length - 1 ||
+        !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(groups[index]) ||
+        groups[index].split(".").some(function (part) {
+          return Number(part) > 255;
+        })
+      ) {
+        return false;
+      }
+      count += 2;
+    } else {
+      if (!/^[0-9A-Fa-f]{1,4}$/.test(groups[index])) {
+        return false;
+      }
+      count += 1;
+    }
+  }
+  return compressed ? count < 8 : count === 8;
+}
+
+function replaceAdminCourseContent_(courseId, normalized) {
+  replaceSheetRecordsByValue_(
+    "CourseOutline",
+    "courseId",
+    courseId,
+    normalized.outline,
+  );
+  replaceSheetRecordsByValue_(
+    "CoursePricing",
+    "courseId",
+    courseId,
+    normalized.pricing,
+  );
+}
+
+function adminCourseBaseFieldsMatch_(existing, requested) {
+  return ADMIN_COURSE_EDITABLE_FIELDS_.every(function (field) {
+    return (
+      existing[field] === requested[field] ||
+      existing[field] === escapeSheetValue_(requested[field])
+    );
+  });
+}
+
+function adminCourseOperationError_(operation, courseId, cause) {
+  var message =
+    operation +
+    " course " +
+    (courseId || "(unknown)") +
+    " failed: " +
+    (cause && cause.message ? cause.message : String(cause));
+  var error = new Error(message);
+  error.name = "AdminCourseOperationError";
+  error.code = "ADMIN_COURSE_" + operation.toUpperCase() + "_FAILED";
+  error.operation = operation;
+  error.courseId = courseId || "";
+  error.cause = cause;
+  return error;
+}
+
+function adminCourseContentOrder_(left, right) {
+  return Number(left.sortOrder) - Number(right.sortOrder);
 }
 
 var CANCELLATION_IN_FLIGHT_DECISIONS_ = {
