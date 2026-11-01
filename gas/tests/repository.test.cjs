@@ -880,6 +880,38 @@ test("replaceSheetRecordsByValue_ validates replacement records before deleting 
   assert.deepEqual(JSON.parse(JSON.stringify(sheets.CourseOutline.rows)), originalRows);
 });
 
+test("replaceSheetRecordsByValue_ with an empty array deletes matches without a zero-row append", () => {
+  const sheet = createSheet("CourseOutline", [
+    expectedHeaders.CourseOutline,
+    ["course-1", 1, "Old item"],
+    ["course-2", 1, "Other course item"],
+  ]);
+  const getRange = sheet.getRange.bind(sheet);
+  let zeroRowWrites = 0;
+  sheet.getRange = (row, column, rowCount = 1, columnCount = 1) => {
+    const range = getRange(row, column, rowCount, columnCount);
+    if (rowCount === 0) {
+      return {
+        ...range,
+        setValues: () => {
+          zeroRowWrites += 1;
+          throw new Error("zero-row range");
+        },
+      };
+    }
+    return range;
+  };
+  const { context } = loadRepository({ sheets: { CourseOutline: sheet } });
+
+  context.replaceSheetRecordsByValue_("CourseOutline", "courseId", "course-1", []);
+
+  assert.equal(zeroRowWrites, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(sheet.rows)), [
+    expectedHeaders.CourseOutline,
+    ["course-2", 1, "Other course item"],
+  ]);
+});
+
 test("initialization leaves exact existing headers and rows intact", () => {
   const rows = [expectedHeaders.Bookings.slice(), ["b1", "L1"]];
   const sheets = { Bookings: createSheet("Bookings", rows) };

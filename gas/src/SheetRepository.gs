@@ -542,7 +542,9 @@ function replaceSheetRecordsByValue_(sheetName, key, keyValue, records) {
   });
 
   deleteSheetRecordsByValue_(sheetName, key, keyValue);
-  appendSheetRecords_(sheetName, records);
+  if (records.length > 0) {
+    appendSheetRecords_(sheetName, records);
+  }
 }
 
 function updateSheetRecord_(sheetName, key, keyValue, updates) {
