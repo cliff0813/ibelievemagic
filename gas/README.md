@@ -26,20 +26,8 @@ npm --prefix gas run sync:fallback
 ### 2.1 試算表與初始化
 
 1. 建立一個 Google 試算表，記下網址中的試算表 ID。
-2. 在 Apps Script 專案的 **專案設定 → 指令碼屬性** 設定：
-
-   | 屬性 | 內容 |
-   | --- | --- |
-   | `SPREADSHEET_ID` | 步驟 1 的試算表 ID |
-   | `ADMIN_EMAIL_ALLOWLIST` | 管理員 Gmail 白名單，以逗號、分號或換行分隔，例如 `a@gmail.com, b@gmail.com`；比對時去除空白並轉小寫 |
-
-   > 實作實際讀取的屬性名稱是 **`ADMIN_EMAIL_ALLOWLIST`**（不是 `ADMIN_EMAILS`）。未設定或不在名單中時一律拒絕。
-3. 在 Apps Script 編輯器選擇函式 `initializeWorkbook_` 並手動執行一次（需授權）。它會建立 `Courses`、`Bookings`、`Participants`、`CancellationRequests`、`AuditLog` 工作表與標題列；若既有標題列與預期不符會丟出錯誤而不覆寫。
-
-### 2.2 建立專案並以 clasp 推送
-
-1. 在 <https://script.google.com> 建立 Apps Script 專案，複製 **Script ID**。
-2. 複製 `gas/.clasp.json.example` 為 `gas/.clasp.json`，加入真實 Script ID（此檔已被 `gas/.gitignore` 忽略，勿提交）：
+2. 在 <https://script.google.com> 建立 Apps Script 專案，複製 **Script ID**。
+3. 複製 `gas/.clasp.json.example` 為 `gas/.clasp.json`，填入真實 Script ID（此檔已被 `gas/.gitignore` 忽略，勿提交）：
 
    ```json
    {
@@ -47,14 +35,26 @@ npm --prefix gas run sync:fallback
      "rootDir": "src"
    }
    ```
-3. 登入並推送（`rootDir` 為 `src`；`appsscript.json` 已含時區 `Asia/Taipei`、V8 與所需 OAuth scope）：
+
+4. 將本機程式碼推送到這個 Apps Script 專案。`rootDir` 指向 `src`；推送後，Apps Script 編輯器才會出現 `initializeWorkbook_()`：
 
    ```powershell
    npm --prefix gas exec -- clasp login
    npm --prefix gas run push        # 等同 clasp push
    ```
 
-### 2.3 部署兩個 Web App（同一份程式碼、兩個部署）
+5. 在 Apps Script 編輯器的 **專案設定 → 指令碼屬性** 設定：
+
+   | 屬性 | 內容 |
+   | --- | --- |
+   | `SPREADSHEET_ID` | 步驟 1 的試算表 ID |
+   | `ADMIN_EMAIL_ALLOWLIST` | 管理員 Gmail 白名單，以逗號、分號或換行分隔，例如 `a@gmail.com, b@gmail.com`；比對時去除空白並轉小寫 |
+
+   > 實作實際讀取的屬性名稱是 **`ADMIN_EMAIL_ALLOWLIST`**（不是 `ADMIN_EMAILS`）。未設定或不在名單中時一律拒絕。
+
+6. 在 Apps Script 編輯器重新整理專案，從上方函式選單選擇 `initializeWorkbook_`，按 **執行** 並完成 Google 授權。此函式會在步驟 1 指定的試算表建立 `Courses`、`Bookings`、`Participants`、`CancellationRequests`、`AuditLog` 工作表與標題列；若既有標題列與預期不符，會明確報錯而不覆寫。
+
+### 2.2 部署兩個 Web App（同一份程式碼、兩個部署）
 
 `appsscript.json` 未含 `webapp` 設定，須在 Apps Script **部署 → 新增部署 → 網頁應用程式** 手動設定：
 
