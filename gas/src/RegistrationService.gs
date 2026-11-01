@@ -1,7 +1,20 @@
 function submitBooking(payload) {
   var validation = validateBookingInput_(payload);
+  if (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    payload.consentAccepted !== true
+  ) {
+    validation.valid = false;
+    validation.errors.push("CONSENT_REQUIRED");
+  }
   if (!validation.valid) {
-    throw new Error("Invalid booking input: " + validation.errors.join(", "));
+    return {
+      success: false,
+      errors: validation.errors,
+      message: "",
+    };
   }
 
   var bookingId = Utilities.getUuid();
@@ -223,15 +236,10 @@ function lookupBooking(lookupCode, leaderPhone) {
   }
 
   var visibleBooking = {
-    lookupCode: booking.lookupCode,
     courseId: booking.courseId,
     courseDate: booking.courseDate,
     leaderName: booking.leaderName,
-    leaderPhone: booking.leaderPhone,
-    leaderEmail: booking.leaderEmail,
     status: booking.status,
-    createdAt: booking.createdAt,
-    confirmationEmailStatus: booking.confirmationEmailStatus,
   };
   var visibleParticipants = getParticipants_()
     .filter(function (participant) {
@@ -239,12 +247,8 @@ function lookupBooking(lookupCode, leaderPhone) {
     })
     .map(function (participant) {
       return {
-        courseId: participant.courseId,
-        courseDate: participant.courseDate,
         name: participant.name,
         phone: participant.phone,
-        email: participant.email,
-        lineName: participant.lineName,
       };
     });
   return {

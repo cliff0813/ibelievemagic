@@ -1,0 +1,453 @@
+<script>
+  (function () {
+    var app = document.getElementById("app");
+    var bookingForm = document.getElementById("booking-form");
+    var courseSelect = document.getElementById("course-select");
+    var participantsContainer = document.getElementById("participants-container");
+    var bookingStatus = document.getElementById("booking-status");
+    var submitButton = document.getElementById("submit-booking");
+    var bookingSuccess = document.getElementById("booking-success");
+    var lookupForm = document.getElementById("lookup-form");
+    var lookupStatus = document.getElementById("lookup-status");
+    var bookingDetails = document.getElementById("booking-details");
+    var cancellationForm = document.getElementById("cancellation-form");
+    var cancellationStatus = document.getElementById("cancellation-status");
+    var latestLookup = null;
+    var lookupRequestSequence = 0;
+    var participantSequence = 0;
+    var coursesById = {};
+
+    function setStatus(element, message, kind) {
+      element.textContent = message || "";
+      element.className = "status" + (kind ? " status-" + kind : "");
+    }
+
+    function showFailure(element, error) {
+      var details =
+        error && typeof error.message === "string" ? error.message : "";
+      var message = "服務暫時無法完成操作，請稍後再試。";
+      if (/duplicate registration|already registered/i.test(details)) {
+        message = "此課程的手機或 Email 已有有效報名，請查詢或聯絡主辦單位。";
+      } else if (/registration is closed|course or course date not found/i.test(details)) {
+        message = "這門課程已截止、關閉或無法報名，請重新選擇開放課程。";
+      } else if (/booking not found|cancellation cannot|already pending/i.test(details)) {
+        message = "目前無法為這筆報名提出取消申請，請重新查詢報名狀態。";
+      } else if (/registration persistence failed/i.test(details)) {
+        message = "報名資料暫時無法保存，請稍後再試或聯絡主辦單位。";
+      }
+      setStatus(element, message, "error");
+    }
+
+    function selectedRegistrationType() {
+      var choices = document.querySelectorAll('input[name="registrationType"]');
+      for (var index = 0; index < choices.length; index += 1) {
+        if (choices[index].checked) {
+          return choices[index].value;
+        }
+      }
+      return "INDIVIDUAL";
+    }
+
+    function participantRows() {
+      return participantsContainer.querySelectorAll(".participant-row");
+    }
+
+    function updateRemoveButtons() {
+      var rows = participantRows();
+      var addParticipantButton = document.getElementById("add-participant");
+      addParticipantButton.disabled =
+        selectedRegistrationType() === "INDIVIDUAL";
+      rows.forEach(function (row) {
+        var removeButton = row.querySelector(".remove-participant");
+        removeButton.disabled =
+          rows.length <= 1 || selectedRegistrationType() === "INDIVIDUAL";
+      });
+    }
+
+    function createParticipantRow() {
+      participantSequence += 1;
+      var row = document.createElement("fieldset");
+      row.className = "participant-row";
+      var legend = document.createElement("legend");
+      legend.textContent = "學員 " + participantSequence;
+      row.appendChild(legend);
+
+      [
+        { field: "name", label: "姓名", type: "text", autocomplete: "name" },
+        { field: "phone", label: "手機", type: "tel", autocomplete: "tel" },
+        { field: "email", label: "Email", type: "email", autocomplete: "email" },
+        { field: "lineName", label: "LINE 名稱", type: "text", autocomplete: "off" },
+      ].forEach(function (definition) {
+        var inputId = "participant-" + participantSequence + "-" + definition.field;
+        var label = document.createElement("label");
+        label.htmlFor = inputId;
+        label.textContent = definition.label;
+        var input = document.createElement("input");
+        input.id = inputId;
+        input.type = definition.type;
+        input.autocomplete = definition.autocomplete;
+        input.required = definition.field !== "lineName";
+        input.dataset.field = definition.field;
+        row.appendChild(label);
+        row.appendChild(input);
+      });
+
+      var removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "button button-secondary remove-participant";
+      removeButton.textContent = "移除此學員";
+      removeButton.addEventListener("click", function () {
+        if (participantRows().length > 1) {
+          row.remove();
+          updateRemoveButtons();
+        }
+      });
+      row.appendChild(removeButton);
+      participantsContainer.appendChild(row);
+      updateRemoveButtons();
+    }
+
+    function displayCourses(courses) {
+      coursesById = {};
+      var placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "請選擇開放課程";
+      courseSelect.replaceChildren(placeholder);
+
+      (Array.isArray(courses) ? courses : []).forEach(function (course) {
+        if (!course || typeof course.courseId !== "string") {
+          return;
+        }
+        coursesById[course.courseId] = course;
+        var option = document.createElement("option");
+        option.value = course.courseId;
+        option.textContent =
+          (course.title || "未命名課程") +
+          "｜" +
+          (course.date || "") +
+          (course.startTime ? " " + course.startTime : "") +
+          (course.location ? "｜" + course.location : "");
+        courseSelect.appendChild(option);
+      });
+
+      var requestedCourseId = app.dataset.initialCourseId || "";
+      if (requestedCourseId && coursesById[requestedCourseId]) {
+        courseSelect.value = requestedCourseId;
+      }
+      if (Object.keys(coursesById).length === 0) {
+        setStatus(bookingStatus, "目前沒有開放報名的課程。", "");
+      }
+    }
+
+    function handleBookingResult(result) {
+      submitButton.disabled = false;
+      if (!result || result.success !== true) {
+        var errors = result && Array.isArray(result.errors) ? result.errors : [];
+        var validationMessages = {
+          INVALID_COURSE_ID: "請選擇課程。",
+          INVALID_COURSE_DATE: "課程日期無效，請重新選擇課程。",
+          INVALID_REGISTRATION_TYPE: "請選擇報名方式。",
+          INVALID_LEADER_NAME: "請填寫團主姓名。",
+          INVALID_LEADER_PHONE: "請填寫有效的團主手機。",
+          INVALID_LEADER_EMAIL: "請填寫有效的團主 Email。",
+          INVALID_PARTICIPANTS: "請至少填寫一位學員。",
+          INVALID_PARTICIPANT: "請檢查每位學員的姓名、手機、Email 及 LINE 名稱。",
+          INDIVIDUAL_REQUIRES_ONE_PARTICIPANT: "個人報名只能填寫一位學員。",
+          GROUP_REQUIRES_THREE_PARTICIPANTS: "團體報名至少需要三位學員。",
+          DUPLICATE_PARTICIPANT: "同一筆報名不可重複填寫相同學員。",
+          CONSENT_REQUIRED: "送出前請先同意個人資料使用說明。",
+        };
+        var message =
+          result && result.message
+            ? result.message
+            : errors
+                .map(function (code) {
+                  return validationMessages[code] || "請檢查報名資料。";
+                })
+                .join(" ");
+        setStatus(bookingStatus, message || "請檢查報名資料。", "error");
+        return;
+      }
+
+      setStatus(bookingStatus, "報名已完成，請保存查詢代碼。", "success");
+      bookingSuccess.hidden = false;
+      var lookupCodeInput = document.getElementById("lookup-code-display");
+      lookupCodeInput.value = result.lookupCode || "";
+      lookupCodeInput.disabled = false;
+
+      var emailMessages = {
+        SENT: "確認信已寄出。",
+        FAILED: "報名已完成，但確認信寄送失敗。請保存上方查詢代碼。",
+        RATE_LIMITED:
+          "RATE_LIMITED：確認信因寄送頻率限制未寄出；報名已完成，請保存上方查詢代碼。",
+        RATE_LIMIT_UNAVAILABLE:
+          "RATE_LIMIT_UNAVAILABLE：目前無法確認寄送頻率，因此未寄出確認信；報名已完成，請保存上方查詢代碼。",
+      };
+      setStatus(
+        document.getElementById("email-status"),
+        emailMessages[result.confirmationEmailStatus] ||
+          "報名已完成，請保存上方查詢代碼。",
+        result.confirmationEmailStatus === "SENT" ? "success" : "",
+      );
+    }
+
+    function appendBookingField(container, labelText, value) {
+      var paragraph = document.createElement("p");
+      var label = document.createElement("strong");
+      label.textContent = labelText + "：";
+      var text = document.createElement("span");
+      text.textContent = value == null ? "" : String(value);
+      paragraph.appendChild(label);
+      paragraph.appendChild(text);
+      container.appendChild(paragraph);
+    }
+
+    function displayLookupResult(result, credentials) {
+      bookingDetails.replaceChildren();
+      bookingDetails.hidden = true;
+      cancellationForm.hidden = true;
+      latestLookup = null;
+
+      if (!result || result.found !== true || !result.booking) {
+        setStatus(
+          lookupStatus,
+          "找不到符合資料的報名，請檢查查詢代碼及團主手機。",
+          "error",
+        );
+        return;
+      }
+
+      var heading = document.createElement("h3");
+      heading.textContent = "報名資料";
+      bookingDetails.appendChild(heading);
+      appendBookingField(bookingDetails, "課程編號", result.booking.courseId);
+      appendBookingField(bookingDetails, "課程日期", result.booking.courseDate);
+      appendBookingField(bookingDetails, "團主", result.booking.leaderName);
+      appendBookingField(bookingDetails, "報名狀態", result.booking.status);
+
+      var participantHeading = document.createElement("h4");
+      participantHeading.textContent = "學員名單";
+      bookingDetails.appendChild(participantHeading);
+      (Array.isArray(result.participants) ? result.participants : []).forEach(
+        function (participant, index) {
+          var participantCard = document.createElement("div");
+          participantCard.className = "participant-summary";
+          appendBookingField(
+            participantCard,
+            "學員 " + (index + 1),
+            participant.name,
+          );
+          appendBookingField(participantCard, "手機", participant.phone);
+          bookingDetails.appendChild(participantCard);
+        },
+      );
+
+      bookingDetails.hidden = false;
+      setStatus(lookupStatus, "已找到符合資料的報名。", "success");
+      if (result.booking.status === "SUBMITTED") {
+        latestLookup = {
+          code: credentials.code,
+          phone: credentials.phone,
+        };
+        cancellationForm.hidden = false;
+      }
+    }
+
+    document.getElementById("add-participant").addEventListener("click", function () {
+      if (selectedRegistrationType() !== "GROUP") {
+        return;
+      }
+      createParticipantRow();
+    });
+
+    document
+      .querySelectorAll('input[name="registrationType"]')
+      .forEach(function (choice) {
+        choice.addEventListener("change", function () {
+          if (selectedRegistrationType() === "INDIVIDUAL") {
+            Array.prototype.slice
+              .call(participantRows(), 1)
+              .forEach(function (row) {
+                row.remove();
+              });
+          }
+          updateRemoveButtons();
+        });
+      });
+
+    bookingForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!bookingForm.reportValidity()) {
+        return;
+      }
+      var registrationType = selectedRegistrationType();
+      var rows = participantRows();
+      if (registrationType === "GROUP" && rows.length < 3) {
+        setStatus(bookingStatus, "團體報名至少需要三位學員。", "error");
+        return;
+      }
+      if (!document.getElementById("consent").checked) {
+        setStatus(bookingStatus, "送出前請先同意個人資料使用說明。", "error");
+        return;
+      }
+
+      var participants = rows.map(function (row) {
+        var participant = {};
+        ["name", "phone", "email", "lineName"].forEach(function (field) {
+          var input = row.querySelector('[data-field="' + field + '"]');
+          participant[field] = input.value.trim();
+        });
+        return participant;
+      });
+      var course = coursesById[courseSelect.value];
+      if (!course) {
+        setStatus(bookingStatus, "請選擇一門目前開放的課程。", "error");
+        return;
+      }
+
+      var payload = {
+        courseId: course.courseId,
+        courseDate: course.date,
+        registrationType: registrationType,
+        leaderName: document.getElementById("leader-name").value.trim(),
+        leaderPhone: document.getElementById("leader-phone").value.trim(),
+        leaderEmail: document.getElementById("leader-email").value.trim(),
+        consentAccepted: true,
+        participants: participants,
+      };
+      submitButton.disabled = true;
+      setStatus(bookingStatus, "正在送出報名，請稍候…", "");
+      google.script.run
+        .withSuccessHandler(handleBookingResult)
+        .withFailureHandler(function (error) {
+          submitButton.disabled = false;
+          showFailure(bookingStatus, error);
+        })
+        .submitBooking(payload);
+    });
+
+    lookupForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!lookupForm.reportValidity()) {
+        return;
+      }
+      var requestSequence = ++lookupRequestSequence;
+      var credentials = {
+        code: document.getElementById("lookup-code").value.trim(),
+        phone: document.getElementById("lookup-phone").value.trim(),
+      };
+      bookingDetails.replaceChildren();
+      bookingDetails.hidden = true;
+      cancellationForm.hidden = true;
+      latestLookup = null;
+      setStatus(lookupStatus, "正在查詢，請稍候…", "");
+      google.script.run
+        .withSuccessHandler(function (result) {
+          if (requestSequence === lookupRequestSequence) {
+            displayLookupResult(result, credentials);
+          }
+        })
+        .withFailureHandler(function (error) {
+          if (requestSequence === lookupRequestSequence) {
+            showFailure(lookupStatus, error);
+          }
+        })
+        .lookupBooking(credentials.code, credentials.phone);
+    });
+
+    cancellationForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!latestLookup) {
+        setStatus(lookupStatus, "請先查詢有效的報名資料。", "error");
+        return;
+      }
+      if (
+        !window.confirm(
+          "取消申請會影響整筆團報，並由管理員審核。確定要提出申請嗎？",
+        )
+      ) {
+        return;
+      }
+
+      var cancelButton = document.getElementById("cancel-booking");
+      cancelButton.disabled = true;
+      setStatus(cancellationStatus, "正在送出取消申請，請稍候…", "");
+      google.script.run
+        .withSuccessHandler(function (result) {
+          cancelButton.disabled = false;
+          if (result && result.success === true) {
+            setStatus(
+              cancellationStatus,
+              "取消申請已送出，狀態為「待管理員審核」。管理員核准前，報名尚未取消。",
+              "success",
+            );
+            cancellationForm.hidden = true;
+          } else {
+            setStatus(
+              cancellationStatus,
+              result && result.message
+                ? result.message
+                : "取消申請未送出，請確認報名狀態後再試。",
+              "error",
+            );
+          }
+        })
+        .withFailureHandler(function (error) {
+          cancelButton.disabled = false;
+          showFailure(cancellationStatus, error);
+        })
+        .requestCancellation(
+          latestLookup.code,
+          latestLookup.phone,
+          document.getElementById("cancellation-reason").value.trim(),
+        );
+    });
+
+    document
+      .getElementById("copy-lookup-code")
+      .addEventListener("click", function () {
+        var input = document.getElementById("lookup-code-display");
+        input.focus();
+        input.select();
+        if (
+          navigator.clipboard &&
+          typeof navigator.clipboard.writeText === "function"
+        ) {
+          navigator.clipboard
+            .writeText(input.value)
+            .then(function () {
+              setStatus(
+                document.getElementById("email-status"),
+                "查詢代碼已複製；請妥善保存。",
+                "success",
+              );
+            })
+            .catch(function () {
+              setStatus(
+                document.getElementById("email-status"),
+                "請手動複製上方顯示的查詢代碼並妥善保存。",
+                "",
+              );
+            });
+        } else {
+          setStatus(
+            document.getElementById("email-status"),
+            "請手動複製上方顯示的查詢代碼並妥善保存。",
+            "",
+          );
+        }
+      });
+
+    createParticipantRow();
+    google.script.run
+      .withSuccessHandler(displayCourses)
+      .withFailureHandler(function (error) {
+        showFailure(bookingStatus, error);
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "無法載入開放課程";
+        courseSelect.replaceChildren(placeholder);
+      })
+      .listOpenCourses();
+  })();
+</script>

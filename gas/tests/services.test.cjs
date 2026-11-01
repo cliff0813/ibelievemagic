@@ -153,6 +153,7 @@ function validPayload(overrides = {}) {
     leaderName: "王小明",
     leaderPhone: "0912-345-678",
     leaderEmail: "leader@example.com",
+    consentAccepted: true,
     participants: [
       {
         name: "王小明",
@@ -307,20 +308,31 @@ test("報名允許同一團體成員共用聯絡方式", () => {
 
 test("報名拒絕少於三人的團體", () => {
   const { context, state } = createHarness();
-  assert.throws(
-    () =>
-      context.submitBooking(
-        validPayload({
-          registrationType: "GROUP",
-          participants: [
-            { name: "成員甲", phone: "0912345678", email: "a@example.com" },
-            { name: "成員乙", phone: "0912345679", email: "b@example.com" },
-          ],
-        }),
-      ),
-    /three|3|三/i,
+  const result = context.submitBooking(
+    validPayload({
+      registrationType: "GROUP",
+      participants: [
+        { name: "成員甲", phone: "0912345678", email: "a@example.com" },
+        { name: "成員乙", phone: "0912345679", email: "b@example.com" },
+      ],
+    }),
   );
+  assert.equal(result.success, false);
+  assert.ok(result.errors.includes("GROUP_REQUIRES_THREE_PARTICIPANTS"));
   assert.equal(state.bookings.length, 0);
+});
+
+test("報名缺少個資同意時回傳驗證錯誤且不寫入資料", () => {
+  const { context, state } = createHarness();
+
+  const result = context.submitBooking(
+    validPayload({ consentAccepted: false }),
+  );
+
+  assert.equal(result.success, false);
+  assert.ok(result.errors.includes("CONSENT_REQUIRED"));
+  assert.equal(state.bookings.length, 0);
+  assert.equal(state.participants.length, 0);
 });
 
 test("查詢代碼錯誤與團長電話錯誤回傳相同的查無報名結果", () => {
@@ -349,9 +361,13 @@ test("查詢代碼錯誤與團長電話錯誤回傳相同的查無報名結果",
 
   const found = context.lookupBooking("existing-code", "0987 654 321");
   assert.equal(found.found, true);
-  assert.equal(found.booking.lookupCode, "existing-code");
-  assert.equal("bookingId" in found.booking, false);
-  assert.equal("bookingId" in found.participants[0], false);
+  assert.deepEqual(Object.keys(found.booking).sort(), [
+    "courseDate",
+    "courseId",
+    "leaderName",
+    "status",
+  ]);
+  assert.deepEqual(Object.keys(found.participants[0]).sort(), ["name", "phone"]);
   assert.equal(state.lockReleased, 0);
 });
 

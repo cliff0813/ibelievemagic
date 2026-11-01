@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <?!= include_('Styles'); ?>
+  </head>
+  <body>
+    <main id="app" class="page-shell" data-initial-course-id="<?= initialCourseId ?>">
+      <header class="page-header">
+        <p class="eyebrow">課程報名</p>
+        <h1>課程報名與查詢</h1>
+        <p class="intro">填寫報名資料，或使用報名查詢代碼和團主手機管理您的報名。</p>
+      </header>
+
+      <section class="panel" aria-labelledby="registration-heading">
+        <h2 id="registration-heading">我要報名</h2>
+        <form id="booking-form">
+          <label for="course-select">選擇課程</label>
+          <select id="course-select" name="courseId" required>
+            <option value="">載入開放課程中…</option>
+          </select>
+
+          <fieldset class="contact-fields">
+            <legend>團主聯絡資料</legend>
+            <label for="leader-name">姓名</label>
+            <input id="leader-name" name="leaderName" autocomplete="name" required>
+            <label for="leader-phone">手機</label>
+            <input id="leader-phone" name="leaderPhone" type="tel" autocomplete="tel" required>
+            <label for="leader-email">Email</label>
+            <input id="leader-email" name="leaderEmail" type="email" autocomplete="email" required>
+          </fieldset>
+
+          <fieldset>
+            <legend>報名方式</legend>
+            <label class="choice" for="registration-type-individual">
+              <input id="registration-type-individual" name="registrationType" type="radio" value="INDIVIDUAL" checked>
+              個人報名
+            </label>
+            <label class="choice" for="registration-type-group">
+              <input id="registration-type-group" name="registrationType" type="radio" value="GROUP">
+              團體報名（至少三位學員）
+            </label>
+          </fieldset>
+
+          <div class="section-heading">
+            <h3>學員資料</h3>
+            <button id="add-participant" class="button button-secondary" type="button">新增學員</button>
+          </div>
+          <div id="participants-container" class="participant-list"></div>
+
+          <label class="consent-row" for="consent">
+            <input id="consent" name="consent" type="checkbox" required>
+            我已閱讀並同意個人資料使用說明，並同意為報名及聯絡目的提供以上資料。
+          </label>
+          <p id="booking-status" class="status" role="status" aria-live="polite"></p>
+          <button id="submit-booking" class="button button-primary" type="submit">送出報名</button>
+        </form>
+
+        <section id="booking-success" class="result-card" aria-labelledby="success-heading" hidden>
+          <h3 id="success-heading">報名已送出</h3>
+          <p>請保存以下報名查詢代碼。您可複製代碼，或自行保存以供日後查詢。</p>
+          <label for="lookup-code-display">報名查詢代碼</label>
+          <div class="copy-row">
+            <input id="lookup-code-display" type="text" readonly aria-label="報名查詢代碼">
+            <button id="copy-lookup-code" class="button button-secondary" type="button">複製代碼</button>
+          </div>
+          <p id="email-status" class="status" role="status" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <section class="panel" aria-labelledby="lookup-heading">
+        <h2 id="lookup-heading">查詢或申請取消</h2>
+        <p>請輸入報名查詢代碼及團主手機。查詢結果只會顯示與這兩項資料相符的報名。</p>
+        <form id="lookup-form">
+          <label for="lookup-code">報名查詢代碼</label>
+          <input id="lookup-code" name="lookupCode" autocomplete="off" required>
+          <label for="lookup-phone">團主手機</label>
+          <input id="lookup-phone" name="leaderPhone" type="tel" autocomplete="tel" required>
+          <p id="lookup-status" class="status" role="status" aria-live="polite"></p>
+          <button class="button button-primary" type="submit">查詢報名</button>
+        </form>
+        <section id="booking-details" class="result-card" aria-live="polite" hidden></section>
+        <form id="cancellation-form" class="cancellation-form" hidden>
+          <label for="cancellation-reason">取消原因（選填）</label>
+          <textarea id="cancellation-reason" name="reason" rows="3"></textarea>
+          <p>取消申請以整筆團報為單位，送出後由管理員審核。</p>
+          <button id="cancel-booking" class="button button-danger" type="submit">申請取消整筆報名</button>
+          <p id="cancellation-status" class="status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+      <footer class="page-footer">
+        <p>請妥善保管報名查詢代碼與團主手機，避免他人查閱您的報名資料。</p>
+      </footer>
+    </main>
+    <?!= include_('Client'); ?>
+  </body>
+</html>
