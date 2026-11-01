@@ -124,6 +124,7 @@ test("the approved public APIs remain callable alongside explicit admin APIs", (
   assert.deepEqual(callable, [
     "decideAdminCancellation",
     "doGet",
+    "initializeWorkbook",
     "listAdminBookings",
     "listAdminCancellationRequests",
     "listAdminCourses",
@@ -134,6 +135,30 @@ test("the approved public APIs remain callable alongside explicit admin APIs", (
     "setCourseRegistrationMode",
     "submitBooking",
   ]);
+});
+
+test("initializeWorkbook public entry requires an admin before touching the sheet", () => {
+  const context = {};
+  vm.createContext(context);
+  for (const filename of fs
+    .readdirSync(sourceDirectory)
+    .filter((name) => name.endsWith(".gs"))) {
+    vm.runInContext(
+      fs.readFileSync(path.join(sourceDirectory, filename), "utf8"),
+      context,
+      { filename },
+    );
+  }
+  let initialized = 0;
+  context.requireAdmin_ = () => {
+    throw new Error("Admin sign-in required");
+  };
+  context.initializeWorkbook_ = () => {
+    initialized += 1;
+  };
+
+  assert.throws(() => context.initializeWorkbook(), /Admin sign-in required/);
+  assert.equal(initialized, 0);
 });
 
 test("admin page supports booking inspection, cancellation decisions and course toggles safely", () => {

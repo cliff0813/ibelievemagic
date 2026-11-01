@@ -25,25 +25,56 @@ npm --prefix gas run sync:fallback
 
 ### 2.1 試算表與初始化
 
-1. 建立一個 Google 試算表，記下網址中的試算表 ID。
-2. 在 <https://script.google.com> 建立 Apps Script 專案，複製 **Script ID**。
-3. 複製 `gas/.clasp.json.example` 為 `gas/.clasp.json`，填入真實 Script ID（此檔已被 `gas/.gitignore` 忽略，勿提交）：
+1. 建立 Google 試算表並取得試算表 ID：
+   1. 開啟 <https://sheets.google.com>，點「空白試算表」。
+   2. 左上角把檔名改成「課程報名資料」（名稱自訂）。
+   3. 看瀏覽器網址列：`https://docs.google.com/spreadsheets/d/<試算表 ID>/edit...`，複製 `/d/` 與 `/edit` 中間那一段，暫存備用。
+   4. 此時不需要手動建立工作表，步驟 8 會自動建立。
+2. 建立 Apps Script 專案並取得 Script ID：
+   1. 開啟 <https://script.google.com>，點「新專案」。
+   2. 左上角把專案名稱改成「課程報名系統」。
+   3. 左側齒輪「**專案設定**」→「**IDs**」區塊的「**指令碼 ID**」→ 點「複製」。
+   4. 此專案是獨立專案即可（不必從試算表的「擴充功能」建立），程式會用 `SPREADSHEET_ID` 開啟試算表。
+3. 在本機建立 `gas/.clasp.json`（此檔已被 `gas/.gitignore` 忽略，勿提交）：
+   1. 在 VS Code 檔案總管展開 `gas` 資料夾，複製 `.clasp.json.example`，貼上並改名為 `.clasp.json`。
+   2. 開啟 `.clasp.json`，把 `scriptId` 換成步驟 2 複製的指令碼 ID，並儲存：
 
-   ```json
-   {
-     "scriptId": "<你的 Script ID>",
-     "rootDir": "src"
-   }
-   ```
+      ```json
+      {
+        "scriptId": "<你的 Script ID>",
+        "rootDir": "src"
+      }
+      ```
 
-4. 將本機程式碼推送到這個 Apps Script 專案。`rootDir` 指向 `src`；推送後，Apps Script 編輯器才會出現 `initializeWorkbook_()`：
+   3. 不要手動逐字輸入，請用貼上；可在終端機執行 `Get-Content .\gas\.clasp.json` 確認內容。
+4. 啟用 Google Apps Script API（每個 Google 帳號只需一次，否則 `push` 會出現 `User has not enabled the Apps Script API`）：
+   1. 用建立 Apps Script 專案的同一個 Google 帳號開啟 <https://script.google.com/home/usersettings>。
+   2. 將「**Google Apps Script API**」開關切換為**開啟**。
+   3. 等待 1 到 5 分鐘讓設定生效。
+
+5. 安裝套件並登入 clasp（在專案根目錄的 VS Code 終端機執行）：
 
    ```powershell
+   npm --prefix gas install
    npm --prefix gas exec -- clasp login
-   npm --prefix gas run push        # 等同 clasp push
    ```
 
-5. 在 Apps Script 編輯器的 **專案設定 → 指令碼屬性** 設定：
+   1. 瀏覽器會開啟 Google 授權頁，選擇與步驟 2 相同的帳號。
+   2. 授權頁的權限勾選：建議至少勾選「查看您的 Google 雲端硬碟檔案相關資訊」「查看、編輯、建立及刪除您透過這個應用程式使用的特定 Google 雲端硬碟檔案」「建立及更新 Google Apps Script 專案」；最簡單的方式是**全部勾選**後按「繼續」。
+   3. 看到「Logged in」或授權成功頁後回到終端機。
+
+6. 將本機程式碼推送到這個 Apps Script 專案。`rootDir` 指向 `src`：
+
+   ```powershell
+   npm --prefix gas run push
+   ```
+
+   1. 出現 `Manifest file has been updated. Do you want to push and overwrite?` 時選 **Yes**（本機 `appsscript.json` 含時區 `Asia/Taipei` 與所需權限）。
+   2. 成功時終端機會列出推送的檔案（共 12 個）。
+   3. 回到 Apps Script 編輯器，**重新整理瀏覽器頁面**，左側「檔案」應出現 `SheetRepository.gs`、`Domain.gs` 等檔案。
+   > 請在專案根目錄用 `npm --prefix gas run push` 執行；直接執行 clasp 指令（例如 `clasp status`）時須先 `cd gas`，否則會出現 `Project settings not found.`。
+
+7. 在 Apps Script 編輯器左側齒輪「**專案設定**」，捲到最下方「**指令碼屬性**」，按「**新增指令碼屬性**」，逐一新增後按「**儲存指令碼屬性**」：
 
    | 屬性 | 內容 |
    | --- | --- |
@@ -52,11 +83,33 @@ npm --prefix gas run sync:fallback
 
    > 實作實際讀取的屬性名稱是 **`ADMIN_EMAIL_ALLOWLIST`**（不是 `ADMIN_EMAILS`）。未設定或不在名單中時一律拒絕。
 
-6. 在 Apps Script 編輯器重新整理專案，從上方函式選單選擇 `initializeWorkbook_`，按 **執行** 並完成 Google 授權。此函式會在步驟 1 指定的試算表建立 `Courses`、`Bookings`、`Participants`、`CancellationRequests`、`AuditLog` 工作表與標題列；若既有標題列與預期不符，會明確報錯而不覆寫。
+8. 執行初始化函式建立工作表：
+   1. 在 Apps Script 編輯器左側點「編輯器」（`</>` 圖示），再點檔案 `SheetRepository.gs`。
+   2. 上方工具列的函式下拉選單選擇 **`initializeWorkbook`**（**沒有底線**的公開入口；結尾為底線的 `initializeWorkbook_` 是私有函式，不會出現在選單中，且 `initializeWorkbook` 只是呼叫它）。
+   3. 按「**執行**」。第一次會出現「需要授權」→「審查權限」→ 選擇帳號 →（若顯示「Google 尚未驗證這個應用程式」，點「進階」→「前往『課程報名系統』（不安全）」）→「允許」。
+   4. 下方「執行記錄」出現「執行完畢」代表成功。
+   5. 回到試算表（需重新整理），確認出現 `Courses`、`Bookings`、`Participants`、`CancellationRequests`、`AuditLog` 五個分頁且第一列為標題；`Courses` 會填入備援課程資料。
+   6. `initializeWorkbook` 會先檢查執行者是否在 `ADMIN_EMAIL_ALLOWLIST`，請確認步驟 7 的白名單包含你目前登入的 Gmail，否則會出現 `Admin sign-in required` 或不在白名單的錯誤。
+   7. 若既有標題列與預期不符，會報錯而不覆寫；若出現找不到 `SPREADSHEET_ID` 的錯誤，請回步驟 7 檢查屬性名稱與值。
 
 ### 2.2 部署兩個 Web App（同一份程式碼、兩個部署）
 
-`appsscript.json` 未含 `webapp` 設定，須在 Apps Script **部署 → 新增部署 → 網頁應用程式** 手動設定：
+`appsscript.json` 未含 `webapp` 設定，須在 Apps Script 手動建立兩個部署。
+
+**A. 公開註冊部署**
+
+1. 編輯器右上角「**部署**」→「**新增部署**」。
+2. 點「選取類型」旁齒輪 →「**網頁應用程式**」。
+3. 說明填「公開註冊」；「執行身分」選「**我**」；「誰可以存取」選「**所有人**」。
+4. 按「**部署**」，必要時再授權一次。
+5. 複製「**網頁應用程式網址**」（以 `/exec` 結尾），之後填入 `data/gas-registration.json`（見第 3 節）。
+
+**B. 管理部署**
+
+1. 再次「**部署**」→「**新增部署**」→ 類型選「網頁應用程式」。
+2. 說明填「管理」；「執行身分」選「**存取網頁應用程式的使用者**」；「誰可以存取」選「**所有 Google 帳戶的使用者**」（需登入 Google）。
+3. 按「部署」，複製 `/exec` 網址。管理頁網址為 `<管理 /exec 網址>?page=admin`，自行保管，不要公開。
+4. 每位管理員第一次開啟管理頁時，需用自己的 Gmail 完成授權。
 
 | 部署 | 執行身分 | 存取權 | 用途 |
 | --- | --- | --- | --- |
@@ -64,10 +117,10 @@ npm --prefix gas run sync:fallback
 | 管理 | **存取網頁應用程式的使用者** | 需登入 Google 帳號 | 管理頁，網址為 `<管理 /exec 網址>?page=admin` |
 
 - 管理頁（`?page=admin`）會先呼叫 `requireAdmin_()`：以 `Session.getActiveUser().getEmail()` 取得登入者並比對白名單。
-- 每位 Gmail 管理員都必須：在 `ADMIN_EMAIL_ALLOWLIST` 中、對試算表有編輯權限，並完成 Apps Script 授權（試算表、寄信、Email scope）。
+- 每位 Gmail 管理員都必須：在 `ADMIN_EMAIL_ALLOWLIST` 中、對試算表有編輯權限（在試算表按「共用」加入該 Gmail 為編輯者），並完成 Apps Script 授權（試算表、寄信、Email scope）。
 - 若 Apps Script 回傳**空白的使用者 Email**，管理功能會**失敗關閉**（拒絕）。請修正部署／帳號設定；**不要移除白名單檢查**。
 - 管理部署網址與白名單屬私密資訊，不可放進公開網站、`data/` 或此儲存庫。
-- 重新 `push` 後，須在部署中選擇「新版本」才會更新既有 `/exec`。
+- 更新程式後：重新 `npm --prefix gas run push`，再到「部署 → 管理部署」對兩個部署各按鉛筆圖示，「版本」選「新版本」並按「部署」，才會更新既有 `/exec`。
 
 ## 3. 圖片與網站連結
 

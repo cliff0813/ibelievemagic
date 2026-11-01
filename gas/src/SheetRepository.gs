@@ -1,3 +1,10 @@
+// Apps Script 編輯器的「執行」選單不會列出結尾為底線的私有函式，
+// 因此提供公開入口供手動初始化。
+function initializeWorkbook() {
+  requireAdmin_();
+  return initializeWorkbook_();
+}
+
 function initializeWorkbook_() {
   var spreadsheet = getRegistrationSpreadsheet_();
   Object.keys(SHEET_SCHEMAS_).forEach(function (sheetName) {
