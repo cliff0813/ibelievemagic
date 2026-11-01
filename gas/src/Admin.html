@@ -13,6 +13,12 @@
       .admin-status { min-height: 1.5em; }
       .admin-status[aria-live] { overflow-wrap: anywhere; }
       .participant-details { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+      .course-editor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem; }
+      .course-editor-field { display: grid; gap: 0.35rem; }
+      .course-editor-field-wide { grid-column: 1 / -1; }
+      .course-content-row { display: flex; align-items: end; gap: 0.55rem; margin: 0.5rem 0; }
+      .course-content-row .course-editor-field { flex: 1; }
+      .course-editor-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 1rem; }
     </style>
   </head>
   <body>
@@ -23,6 +29,72 @@
         <p class="intro">查看報名、審核取消申請及管理報名開關。操作紀錄會保留，不提供刪除功能。</p>
         <p id="admin-status" class="status admin-status" role="status" aria-live="polite"></p>
       </header>
+
+      <section class="panel" aria-labelledby="course-editor-heading">
+        <h2 id="course-editor-heading">新增課程</h2>
+        <p>報名模式使用 AUTO，依課程截止日自動開放或關閉。</p>
+        <form id="course-form">
+          <div class="course-editor-grid">
+            <div class="course-editor-field">
+              <label for="course-id">課程 ID</label>
+              <input id="course-id" name="courseId" type="text" required>
+            </div>
+            <div class="course-editor-field">
+              <label for="course-title">課程名稱</label>
+              <input id="course-title" name="title" type="text" required>
+            </div>
+            <div class="course-editor-field">
+              <label for="course-date">日期</label>
+              <input id="course-date" name="date" type="date" required>
+            </div>
+            <div class="course-editor-field">
+              <label for="course-start-time">開始時間</label>
+              <input id="course-start-time" name="startTime" type="time" required>
+            </div>
+            <div class="course-editor-field">
+              <label for="course-end-time">結束時間</label>
+              <input id="course-end-time" name="endTime" type="time" required>
+            </div>
+            <div class="course-editor-field">
+              <label for="course-location">上課地點</label>
+              <input id="course-location" name="location" type="text">
+            </div>
+            <div class="course-editor-field">
+              <label for="course-mode">上課方式</label>
+              <input id="course-mode" name="mode" type="text">
+            </div>
+            <div class="course-editor-field course-editor-field-wide">
+              <label for="course-image">課程圖片網址</label>
+              <input id="course-image" name="image" type="url">
+            </div>
+            <div class="course-editor-field course-editor-field-wide">
+              <label for="course-description">課程說明</label>
+              <textarea id="course-description" name="description" rows="4"></textarea>
+            </div>
+            <div class="course-editor-field">
+              <label for="course-instructor">講師</label>
+              <input id="course-instructor" name="instructor" type="text">
+            </div>
+            <div class="course-editor-field course-editor-field-wide">
+              <label for="course-instructor-bio">講師簡介</label>
+              <textarea id="course-instructor-bio" name="instructorBio" rows="3"></textarea>
+            </div>
+          </div>
+
+          <h3>課綱</h3>
+          <div id="course-outline"></div>
+          <button id="add-outline-item" class="button button-secondary" type="button">新增課綱項目</button>
+
+          <h3>費用</h3>
+          <div id="course-pricing"></div>
+          <button id="add-pricing-item" class="button button-secondary" type="button">新增費用級距</button>
+
+          <div class="course-editor-actions">
+            <button id="course-submit" class="button button-primary" type="submit">新增課程</button>
+            <button id="cancel-course-edit" class="button button-secondary" type="button" hidden>取消編輯</button>
+          </div>
+        </form>
+      </section>
 
       <section class="panel" aria-labelledby="course-heading">
         <h2 id="course-heading">課程報名開關</h2>
@@ -48,6 +120,24 @@
         var bookingList = document.getElementById("booking-list");
         var cancellationList = document.getElementById("cancellation-list");
         var courseList = document.getElementById("course-list");
+        var courseForm = document.getElementById("course-form");
+        var courseIdInput = document.getElementById("course-id");
+        var courseTitleInput = document.getElementById("course-title");
+        var courseDateInput = document.getElementById("course-date");
+        var courseStartTimeInput = document.getElementById("course-start-time");
+        var courseEndTimeInput = document.getElementById("course-end-time");
+        var courseLocationInput = document.getElementById("course-location");
+        var courseModeInput = document.getElementById("course-mode");
+        var courseImageInput = document.getElementById("course-image");
+        var courseDescriptionInput = document.getElementById("course-description");
+        var courseInstructorInput = document.getElementById("course-instructor");
+        var courseInstructorBioInput = document.getElementById("course-instructor-bio");
+        var courseOutline = document.getElementById("course-outline");
+        var coursePricing = document.getElementById("course-pricing");
+        var courseSubmit = document.getElementById("course-submit");
+        var cancelCourseEdit = document.getElementById("cancel-course-edit");
+        var editingCourseId = null;
+        var courseIdGenerationError = false;
 
         function callServer(method) {
           var args = Array.prototype.slice.call(arguments, 1);
@@ -88,6 +178,231 @@
           appendText(card, "h3", title);
           parent.appendChild(card);
           return card;
+        }
+
+        function moveCourseRow(row, direction) {
+          var parent = row.parentNode;
+          var index = Array.prototype.indexOf.call(parent.children, row);
+          if (direction < 0 && index > 0) {
+            parent.insertBefore(row, parent.children[index - 1]);
+          } else if (direction > 0 && index < parent.children.length - 1) {
+            parent.insertBefore(parent.children[index + 1], row);
+          }
+        }
+
+        function addOutlineRow(value) {
+          var row = document.createElement("div");
+          row.className = "course-content-row outline-row";
+          var field = document.createElement("div");
+          field.className = "course-editor-field";
+          var label = appendText(field, "label", "課綱項目");
+          var input = document.createElement("input");
+          input.type = "text";
+          input.name = "outline";
+          input.required = true;
+          input.value = value || "";
+          label.appendChild(input);
+          row.appendChild(field);
+          row.appendChild(
+            makeButton("上移", "button-secondary outline-move-up", function () {
+              moveCourseRow(row, -1);
+            }),
+          );
+          row.appendChild(
+            makeButton("下移", "button-secondary outline-move-down", function () {
+              moveCourseRow(row, 1);
+            }),
+          );
+          row.appendChild(
+            makeButton("移除此項", "button-secondary outline-remove-button", function () {
+              row.remove();
+            }),
+          );
+          courseOutline.appendChild(row);
+        }
+
+        function addPricingRow(item) {
+          item = item || {};
+          var row = document.createElement("div");
+          row.className = "course-content-row pricing-row";
+
+          var labelField = document.createElement("div");
+          labelField.className = "course-editor-field";
+          var label = appendText(labelField, "label", "費用名稱");
+          var labelInput = document.createElement("input");
+          labelInput.type = "text";
+          labelInput.name = "pricingLabel";
+          labelInput.required = true;
+          labelInput.value = item.label || "";
+          label.appendChild(labelInput);
+          row.appendChild(labelField);
+
+          var priceField = document.createElement("div");
+          priceField.className = "course-editor-field";
+          var priceLabel = appendText(priceField, "label", "金額");
+          var priceInput = document.createElement("input");
+          priceInput.type = "number";
+          priceInput.name = "pricingPrice";
+          priceInput.step = "any";
+          priceInput.required = true;
+          priceInput.value = item.price == null ? "" : item.price;
+          priceLabel.appendChild(priceInput);
+          row.appendChild(priceField);
+
+          row.appendChild(
+            makeButton("上移", "button-secondary pricing-move-up", function () {
+              moveCourseRow(row, -1);
+            }),
+          );
+          row.appendChild(
+            makeButton("下移", "button-secondary pricing-move-down", function () {
+              moveCourseRow(row, 1);
+            }),
+          );
+          row.appendChild(
+            makeButton("移除此級距", "button-secondary pricing-remove-button", function () {
+              row.remove();
+            }),
+          );
+          coursePricing.appendChild(row);
+        }
+
+        function prepareNewCourseForm() {
+          editingCourseId = null;
+          courseForm.reset();
+          courseIdInput.readOnly = false;
+          courseSubmit.textContent = "新增課程";
+          cancelCourseEdit.hidden = true;
+          courseOutline.replaceChildren();
+          coursePricing.replaceChildren();
+          addOutlineRow("");
+          addPricingRow();
+          courseIdGenerationError = false;
+          try {
+            if (typeof crypto === "undefined" || typeof crypto.randomUUID !== "function") {
+              throw new Error("瀏覽器不支援安全的 UUID 產生功能");
+            }
+            courseIdInput.value = crypto.randomUUID();
+            courseSubmit.disabled = false;
+          } catch (error) {
+            courseIdGenerationError = true;
+            courseIdInput.value = "";
+            courseSubmit.disabled = true;
+            setStatus(
+              "無法產生課程 ID：" + (error.message || error),
+              true,
+            );
+          }
+        }
+
+        function beginCourseEdit(course) {
+          editingCourseId = course.courseId;
+          courseIdGenerationError = false;
+          courseIdInput.value = course.courseId || "";
+          courseIdInput.readOnly = true;
+          courseTitleInput.value = course.title || "";
+          courseDateInput.value = course.date || "";
+          courseStartTimeInput.value = course.startTime || "";
+          courseEndTimeInput.value = course.endTime || "";
+          courseLocationInput.value = course.location || "";
+          courseModeInput.value = course.mode || "";
+          courseImageInput.value = course.image || "";
+          courseDescriptionInput.value = course.description || "";
+          courseInstructorInput.value = course.instructor || "";
+          courseInstructorBioInput.value = course.instructorBio || "";
+          courseOutline.replaceChildren();
+          coursePricing.replaceChildren();
+          (course.outline || []).forEach(addOutlineRow);
+          (course.pricing || []).forEach(addPricingRow);
+          courseSubmit.textContent = "更新課程";
+          courseSubmit.disabled = false;
+          cancelCourseEdit.hidden = false;
+          setStatus("正在編輯「" + course.title + "」。", false);
+        }
+
+        function submitCourse(event) {
+          event.preventDefault();
+          if (courseIdGenerationError) {
+            setStatus("無法安全產生課程 ID，請使用支援 UUID 的瀏覽器後重試。", true);
+            return;
+          }
+          if (!courseForm.reportValidity()) return;
+
+          var outline = Array.prototype.map.call(
+            courseOutline.querySelectorAll('[name="outline"]'),
+            function (input) { return input.value.trim(); },
+          );
+          if (outline.some(function (item) { return item === ""; })) {
+            setStatus("請填寫所有課綱項目，或移除空白列。", true);
+            return;
+          }
+
+          var pricing = [];
+          var pricingRows = coursePricing.querySelectorAll(".pricing-row");
+          for (var index = 0; index < pricingRows.length; index += 1) {
+            var labelInput = pricingRows[index].querySelector('[name="pricingLabel"]');
+            var priceInput = pricingRows[index].querySelector('[name="pricingPrice"]');
+            var label = labelInput.value.trim();
+            var price = Number(priceInput.value);
+            if (
+              label === "" ||
+              priceInput.value.trim() === "" ||
+              !isFinite(price)
+            ) {
+              setStatus("請填寫有效的費用名稱與數字金額。", true);
+              return;
+            }
+            pricing.push({ label: label, price: price });
+          }
+
+          var payload = {
+            courseId: courseIdInput.value.trim(),
+            title: courseTitleInput.value,
+            date: courseDateInput.value,
+            startTime: courseStartTimeInput.value,
+            endTime: courseEndTimeInput.value,
+            location: courseLocationInput.value,
+            mode: courseModeInput.value,
+            image: courseImageInput.value,
+            description: courseDescriptionInput.value,
+            instructor: courseInstructorInput.value,
+            instructorBio: courseInstructorBioInput.value,
+            outline: outline,
+            pricing: pricing,
+          };
+          var operation = editingCourseId ? "update" : "create";
+          setStatus(operation === "update" ? "正在更新課程…" : "正在新增課程…", false);
+          var request = editingCourseId
+            ? callServer("updateAdminCourse", editingCourseId, payload)
+            : callServer("createAdminCourse", payload);
+          request.then(function () {
+            setStatus(operation === "update" ? "課程已更新。" : "課程已新增。", false);
+            prepareNewCourseForm();
+            return refresh();
+          }).catch(function (error) {
+            setStatus(
+              (operation === "update" ? "課程更新失敗：" : "課程新增失敗：") +
+                (error.message || error),
+              true,
+            );
+          });
+        }
+
+        function deleteCourse(course) {
+          var confirmed = window.confirm(
+            "確定刪除「" + course.title +
+              "」？如有任何報名紀錄（包含已取消），系統會拒絕刪除。",
+          );
+          if (!confirmed) return;
+
+          setStatus("正在刪除課程…", false);
+          callServer("deleteAdminCourse", course.courseId).then(function () {
+            if (editingCourseId === course.courseId) prepareNewCourseForm();
+            setStatus("課程已刪除。", false);
+            return refresh();
+          }).catch(function (error) {
+            setStatus("課程刪除失敗：" + (error.message || error), true);
+          });
         }
 
         function renderBookings(bookings) {
@@ -227,6 +542,27 @@
               "p",
               "手動模式：" + (course.manualRegistrationMode || "AUTO"),
             );
+            if (course.persisted) {
+              var managementActions = document.createElement("div");
+              managementActions.className = "admin-actions";
+              managementActions.appendChild(
+                makeButton("編輯", "button-secondary course-edit-button", function () {
+                  beginCourseEdit(course);
+                }),
+              );
+              managementActions.appendChild(
+                makeButton("刪除", "button-danger course-delete-button", function () {
+                  deleteCourse(course);
+                }),
+              );
+              card.appendChild(managementActions);
+            } else {
+              appendText(
+                card,
+                "p",
+                "此課程僅為網站備援資料，尚未存入試算表，無法編輯或刪除。",
+              );
+            }
             if (course.pendingRecovery) {
               appendText(
                 card,
@@ -271,7 +607,7 @@
             renderBookings(results[0]);
             renderCancellations(results[1]);
             renderCourses(results[2]);
-            setStatus("資料已更新。", false);
+            if (!courseIdGenerationError) setStatus("資料已更新。", false);
           }).catch(function (error) {
             setStatus("無法載入管理資料：" + (error.message || error), true);
           });
@@ -316,6 +652,19 @@
             });
         }
 
+        document.getElementById("add-outline-item").addEventListener("click", function () {
+          addOutlineRow("");
+        });
+        document.getElementById("add-pricing-item").addEventListener("click", function () {
+          addPricingRow();
+        });
+        courseForm.addEventListener("submit", submitCourse);
+        cancelCourseEdit.addEventListener("click", function () {
+          prepareNewCourseForm();
+          setStatus("已取消編輯。", false);
+        });
+
+        prepareNewCourseForm();
         refresh();
       })();
     </script>
