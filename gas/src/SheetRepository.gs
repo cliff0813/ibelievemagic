@@ -490,6 +490,61 @@ function appendSheetRecords_(sheetName, records) {
     .setValues(rows);
 }
 
+function deleteSheetRecordsByValue_(sheetName, key, keyValue) {
+  if (!Object.prototype.hasOwnProperty.call(SHEET_SCHEMAS_, sheetName)) {
+    throw new Error("Unknown sheet schema: " + sheetName);
+  }
+  var headers = SHEET_SCHEMAS_[sheetName];
+  var keyColumn = headers.indexOf(key);
+  if (keyColumn < 0) {
+    throw new Error("Invalid key " + key + " for sheet " + sheetName);
+  }
+
+  var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error("Sheet " + sheetName + " is not initialized");
+  }
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return 0;
+  }
+
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var matchingRows = [];
+  values.forEach(function (row, index) {
+    if (row[keyColumn] === keyValue) {
+      matchingRows.push(index + 2);
+    }
+  });
+  matchingRows.reverse().forEach(function (rowNumber) {
+    sheet.deleteRow(rowNumber);
+  });
+  return matchingRows.length;
+}
+
+function replaceSheetRecordsByValue_(sheetName, key, keyValue, records) {
+  if (!Object.prototype.hasOwnProperty.call(SHEET_SCHEMAS_, sheetName)) {
+    throw new Error("Unknown sheet schema: " + sheetName);
+  }
+  var headers = SHEET_SCHEMAS_[sheetName];
+  if (headers.indexOf(key) < 0) {
+    throw new Error("Invalid key " + key + " for sheet " + sheetName);
+  }
+  if (!Array.isArray(records)) {
+    throw new Error("Replacement records must be an array");
+  }
+  records.forEach(function (record) {
+    if (!record || record[key] !== keyValue) {
+      throw new Error(
+        "Every replacement record must have " + key + " equal to " + keyValue,
+      );
+    }
+  });
+
+  deleteSheetRecordsByValue_(sheetName, key, keyValue);
+  appendSheetRecords_(sheetName, records);
+}
+
 function updateSheetRecord_(sheetName, key, keyValue, updates) {
   var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) {

@@ -739,6 +739,147 @@ test("audit compensation deletes only the attempted event and is idempotent", ()
   ]);
 });
 
+test("replaceSheetRecordsByValue_ replaces only matching course rows and appends replacements in order", () => {
+  const { context, sheets } = loadRepository({
+    sheets: {
+      CourseOutline: createSheet("CourseOutline", [
+        expectedHeaders.CourseOutline,
+        ["course-1", 1, "Old first item"],
+        ["course-2", 1, "Other course item"],
+        ["course-1", 2, "Old second item"],
+      ]),
+    },
+  });
+  const replacements = [
+    { courseId: "course-1", sortOrder: 1, item: "New first item" },
+    { courseId: "course-1", sortOrder: 2, item: "New second item" },
+  ];
+
+  context.replaceSheetRecordsByValue_(
+    "CourseOutline",
+    "courseId",
+    "course-1",
+    replacements,
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CourseOutline.rows)), [
+    expectedHeaders.CourseOutline,
+    ["course-2", 1, "Other course item"],
+    ["course-1", 1, "New first item"],
+    ["course-1", 2, "New second item"],
+  ]);
+});
+
+test("deleteSheetRecordsByValue_ deletes every exact match and repeated deletes preserve other IDs", () => {
+  const { context, sheets } = loadRepository({
+    sheets: {
+      CoursePricing: createSheet("CoursePricing", [
+        expectedHeaders.CoursePricing,
+        ["course-1", 1, "First", 10],
+        ["course-2", 1, "Other course", 20],
+        ["course-1", 2, "Second", 30],
+        ["course-3", 1, "Another course", 40],
+        ["course-1-extra", 1, "Different ID", 50],
+      ]),
+    },
+  });
+
+  assert.equal(
+    context.deleteSheetRecordsByValue_(
+      "CoursePricing",
+      "courseId",
+      "course-1",
+    ),
+    2,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CoursePricing.rows)), [
+    expectedHeaders.CoursePricing,
+    ["course-2", 1, "Other course", 20],
+    ["course-3", 1, "Another course", 40],
+    ["course-1-extra", 1, "Different ID", 50],
+  ]);
+
+  assert.equal(
+    context.deleteSheetRecordsByValue_(
+      "CoursePricing",
+      "courseId",
+      "course-1",
+    ),
+    0,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CoursePricing.rows)), [
+    expectedHeaders.CoursePricing,
+    ["course-2", 1, "Other course", 20],
+    ["course-3", 1, "Another course", 40],
+    ["course-1-extra", 1, "Different ID", 50],
+  ]);
+});
+
+test("sheet row helpers reject unknown sheets and keys before changing rows", () => {
+  const { context, sheets } = loadRepository({
+    sheets: {
+      CourseOutline: createSheet("CourseOutline", [
+        expectedHeaders.CourseOutline,
+        ["course-1", 1, "Existing item"],
+      ]),
+    },
+  });
+  const originalRows = JSON.parse(JSON.stringify(sheets.CourseOutline.rows));
+
+  assert.throws(
+    () => context.deleteSheetRecordsByValue_("UnknownSheet", "courseId", "course-1"),
+    /UnknownSheet/,
+  );
+  assert.throws(
+    () => context.deleteSheetRecordsByValue_("CourseOutline", "notAField", "course-1"),
+    /notAField/,
+  );
+  assert.throws(
+    () => context.replaceSheetRecordsByValue_("UnknownSheet", "courseId", "course-1", []),
+    /UnknownSheet/,
+  );
+  assert.throws(
+    () => context.replaceSheetRecordsByValue_("CourseOutline", "notAField", "course-1", []),
+    /notAField/,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CourseOutline.rows)), originalRows);
+});
+
+test("replaceSheetRecordsByValue_ validates replacement records before deleting matches", () => {
+  const { context, sheets } = loadRepository({
+    sheets: {
+      CourseOutline: createSheet("CourseOutline", [
+        expectedHeaders.CourseOutline,
+        ["course-1", 1, "Existing item"],
+        ["course-2", 1, "Other course item"],
+      ]),
+    },
+  });
+  const originalRows = JSON.parse(JSON.stringify(sheets.CourseOutline.rows));
+
+  assert.throws(
+    () =>
+      context.replaceSheetRecordsByValue_(
+        "CourseOutline",
+        "courseId",
+        "course-1",
+        {},
+      ),
+    /array/,
+  );
+  assert.throws(
+    () =>
+      context.replaceSheetRecordsByValue_(
+        "CourseOutline",
+        "courseId",
+        "course-1",
+        [{ courseId: "course-2", sortOrder: 2, item: "Wrong course" }],
+      ),
+    /courseId/,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CourseOutline.rows)), originalRows);
+});
+
 test("initialization leaves exact existing headers and rows intact", () => {
   const rows = [expectedHeaders.Bookings.slice(), ["b1", "L1"]];
   const sheets = { Bookings: createSheet("Bookings", rows) };
