@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Calendar, Clock, User, ArrowRight } from "lucide-react";
-import { type Course, formatCourseDate } from "@/lib/data";
+import { formatCourseDate } from "@/lib/data";
+import type { Course } from "@/lib/course-types";
+import { courseDetailHref } from "@/lib/live-courses.mjs";
 
 export default function CourseCard({ course }: { course: Course }) {
   return (
@@ -16,8 +18,8 @@ export default function CourseCard({ course }: { course: Course }) {
         <p className="mb-2 flex items-center gap-1 text-sm font-medium text-brand-600"><User className="h-4 w-4" />講師:{course.instructor}</p>
         <p className="mb-4 line-clamp-5 flex-1 text-sm leading-relaxed text-slate-600">{course.description}</p>
         <div className="flex items-center justify-between">
-          <span className="text-lg font-bold text-brand-900">NT${course.pricing[0].price.toLocaleString()}</span>
-          <Link href={`/courses/${course.id}`} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
+          <span className="text-lg font-bold text-brand-900">{course.pricing[0] ? `NT$${course.pricing[0].price.toLocaleString()}` : "價格洽詢"}</span>
+          <Link href={courseDetailHref(course.id)} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
             了解詳情 <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

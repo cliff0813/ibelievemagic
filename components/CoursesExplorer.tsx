@@ -2,16 +2,14 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import CourseCard from "./CourseCard";
-import type { Course } from "@/lib/data";
+import type { Course } from "@/lib/course-types";
+import { filterCourses } from "@/lib/live-courses.mjs";
 
 export default function CoursesExplorer({ courses }: { courses: Course[] }) {
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
-    const kw = q.trim().toLowerCase();
-    return courses.filter(
-      (c) => !kw || [c.title, c.instructor, c.description].some((s) => s.toLowerCase().includes(kw))
-    );
+    return filterCourses(courses, q);
   }, [courses, q]);
 
   return (

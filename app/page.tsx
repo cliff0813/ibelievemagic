@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, Newspaper, GraduationCap, Award, Calendar } from "lucide-react";
-import CourseCard from "@/components/CourseCard";
+import LiveCourseList from "@/components/LiveCourseList";
 import ArticleCover from "@/components/ArticleCover";
-import { getCourses, getArticles, getNews, getInstructors, articleCategories } from "@/lib/data";
+import { getArticles, getNews, getInstructors, articleCategories } from "@/lib/data";
 
 export const revalidate = 1800;
 
 export default async function Home() {
-  const [courses, articles, news, instructors] = await Promise.all([
-    getCourses(), getArticles(), getNews(), getInstructors(),
-  ]);
-  const latest = courses.slice(0, 3);
+  const [articles, news, instructors] = await Promise.all([getArticles(), getNews(), getInstructors()]);
 
   return (
     <>
@@ -36,9 +33,7 @@ export default async function Home() {
 
       <section className="mx-auto max-w-6xl px-4 py-16">
         <SectionTitle icon={<GraduationCap />}         title="最新課程" href="/courses" />
-        <div className="grid gap-6 md:grid-cols-3">
-                  {latest.map((c) => <CourseCard key={c.id} course={c} />)}
-        </div>
+        <LiveCourseList limit={3} />
       </section>
 
       <section id="knowledge" className="scroll-mt-20 bg-white py-16">
