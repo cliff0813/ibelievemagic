@@ -350,6 +350,45 @@ test("create rejects different base fields for an existing ID", () => {
   assert.equal(harness.state.writes, 0);
 });
 
+test("create retry rejects different linked content for an existing course without changes", () => {
+  const variants = [
+    { outline: ["Topic one", "Changed topic"] },
+    { outline: ["Topic one"] },
+    {
+      pricing: [
+        { label: "Standard", price: 1300 },
+        { label: "Student", price: 800 },
+      ],
+    },
+    { pricing: [{ label: "Standard", price: 1200 }] },
+    {
+      pricing: [
+        { label: "Standard", price: 1200 },
+        { label: "Other", price: 800 },
+      ],
+    },
+  ];
+  const sheets = ["Courses", "CourseOutline", "CoursePricing"];
+  for (const variant of variants) {
+    const harness = createHarness();
+    harness.context.createAdminCourse(course());
+    const before = sheets.map((name) => JSON.stringify(harness.records(name)));
+    const writes = harness.state.writes;
+
+    assert.throws(
+      () => harness.context.createAdminCourse(course(variant)),
+      /duplicate|already exists|different/i,
+    );
+    assert.deepEqual(
+      sheets.map((name) => JSON.stringify(harness.records(name))),
+      before,
+    );
+    assert.equal(harness.state.writes, writes);
+    assert.equal(harness.state.acquired, 2);
+    assert.equal(harness.state.released, 2);
+  }
+});
+
 test("create validates required values, calendar date, time, URL, outline, and pricing before writes", () => {
   const invalidCases = [
     [{ courseId: " " }, /course.?id/i],

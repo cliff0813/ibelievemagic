@@ -276,6 +276,15 @@ function createAdminCourse(payload) {
       throw new Error("A different course already exists with this course ID");
     }
 
+    if (
+      existing.length === 1 &&
+      !adminCourseContentMatches_(courseId, normalized)
+    ) {
+      throw new Error(
+        "A different course already exists with this course ID and linked content",
+      );
+    }
+
     replaceAdminCourseContent_(courseId, normalized);
     if (existing.length === 0) {
       appendSheetRecords_("Courses", [normalized.course]);
@@ -665,6 +674,31 @@ function replaceAdminCourseContent_(courseId, normalized) {
     courseId,
     normalized.pricing,
   );
+}
+
+function adminCourseContentMatches_(courseId, normalized) {
+  return [
+    ["CourseOutline", normalized.outline],
+    ["CoursePricing", normalized.pricing],
+  ].every(function (entry) {
+    var existing = getSheetRecords_(entry[0])
+      .filter(function (record) {
+        return record.courseId === courseId;
+      })
+      .sort(adminCourseContentOrder_);
+    var requested = entry[1];
+    return (
+      existing.length === requested.length &&
+      existing.every(function (record, index) {
+        return Object.keys(requested[index]).every(function (field) {
+          return (
+            record[field] === requested[index][field] ||
+            record[field] === escapeSheetValue_(requested[index][field])
+          );
+        });
+      })
+    );
+  });
 }
 
 function adminCourseBaseFieldsMatch_(existing, requested) {
