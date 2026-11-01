@@ -10,16 +10,7 @@ export type { NewsItem };
 export type Instructor = (typeof instructorsJson)[number];
 export type Block = { type: string; id?: string; text?: string; items?: string[] };
 
-export function formatCourseDateLong(date: string) {
-  const d = new Date(`${date}T00:00:00+08:00`);
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日星期${"日一二三四五六"[d.getDay()]}`;
-}
-
-export function formatCourseDate(date: string) {
-  const d = new Date(`${date}T00:00:00+08:00`);
-  const w = "日一二三四五六"[d.getDay()];
-  return `${d.getMonth() + 1}月${d.getDate()}日週${w}`;
-}
+export { formatCourseDate, formatCourseDateLong } from "@/lib/course-date.mjs";
 
 export const DEFAULT_ARTICLE_IMAGE = "/images/default-article.svg";
 
