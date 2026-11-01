@@ -15,7 +15,12 @@ const expectedHeaders = {
     "mode",
     "image",
     "manualRegistrationMode",
+    "description",
+    "instructor",
+    "instructorBio",
   ],
+  CourseOutline: ["courseId", "sortOrder", "item"],
+  CoursePricing: ["courseId", "sortOrder", "label", "price"],
   Bookings: [
     "bookingId",
     "lookupCode",
@@ -144,6 +149,48 @@ test("initialization creates missing sheets with the shared schema headers", () 
   }
 });
 
+test("initialization extends the old Courses schema without changing existing rows", () => {
+  const existingCourse = [
+    "course-1",
+    "Existing course",
+    "2026-11-17",
+    "09:00",
+    "12:00",
+    "Taipei",
+    "onsite",
+    "course-image",
+    "AUTO",
+  ];
+  const oldCoursesHeader = expectedHeaders.Courses.slice(0, 9);
+  const courses = createSheet("Courses", [
+    oldCoursesHeader,
+    existingCourse.slice(),
+  ]);
+  const { context, sheets } = loadRepository({
+    sheets: { Courses: courses },
+  });
+
+  context.initializeWorkbook_();
+  context.initializeWorkbook_();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(courses.rows[0])),
+    expectedHeaders.Courses,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(courses.rows[1])),
+    existingCourse,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sheets.CourseOutline.rows[0])),
+    expectedHeaders.CourseOutline,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sheets.CoursePricing.rows[0])),
+    expectedHeaders.CoursePricing,
+  );
+});
+
 test("initialization imports fallback courses only once", () => {
   const fallback = [
     { id: "fallback-course", title: "Fallback", date: "2026-11-17" },
@@ -192,6 +239,9 @@ test("an empty Courses sheet returns fallback courses in the canonical schema", 
         mode: "",
         image: "fallback-image",
         manualRegistrationMode: "AUTO",
+        description: "JSON-only description",
+        instructor: "",
+        instructorBio: "",
       },
     ],
   );
@@ -215,6 +265,9 @@ test("a missing Courses sheet returns fallback courses in the canonical schema",
         mode: "",
         image: "",
         manualRegistrationMode: "AUTO",
+        description: "",
+        instructor: "",
+        instructorBio: "",
       },
     ],
   );
@@ -285,6 +338,9 @@ test("usable Courses rows are returned without adding fallback courses", () => {
         mode: "In person",
         image: "image",
         manualRegistrationMode: "AUTO",
+        description: "",
+        instructor: "",
+        instructorBio: "",
       },
     ],
   );

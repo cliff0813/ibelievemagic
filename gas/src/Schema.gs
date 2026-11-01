@@ -9,7 +9,12 @@ var SHEET_SCHEMAS_ = {
     "mode",
     "image",
     "manualRegistrationMode",
+    "description",
+    "instructor",
+    "instructorBio",
   ],
+  CourseOutline: ["courseId", "sortOrder", "item"],
+  CoursePricing: ["courseId", "sortOrder", "label", "price"],
   Bookings: [
     "bookingId",
     "lookupCode",
