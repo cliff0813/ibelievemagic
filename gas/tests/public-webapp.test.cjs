@@ -190,6 +190,23 @@ test("public course JSONP rejects callbacks outside the JavaScript identifier al
   }
 });
 
+test("public course JSONP rejects reserved words as callbacks", () => {
+  const context = loadWebApp([]);
+
+  for (const callback of [
+    "class", "default", "return", "null", "true", "false", "this", "typeof",
+    "enum", "implements", "let", "static", "yield", "await", "eval", "arguments",
+  ]) {
+    assert.throws(
+      () => context.doGet({ parameter: { format: "courses", callback } }),
+      /callback/i,
+      callback,
+    );
+  }
+  assert.doesNotThrow(() =>
+    context.doGet({ parameter: { format: "courses", callback: "classCallback" } }),
+  );
+});
 test("public course JSONP treats missing detail sheets as empty content", () => {
   const context = loadWebApp(
     [{ courseId: "course-1", title: "課程" }],

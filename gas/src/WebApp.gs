@@ -20,7 +20,7 @@ function doGet(e) {
     var callback = parameters.callback;
     if (
       typeof callback !== "string" ||
-      !/^[A-Za-z_$][0-9A-Za-z_$]*$/.test(callback)
+      !isSafeJsonpCallback_(callback)
     ) {
       throw new Error("Invalid JSONP callback");
     }
@@ -36,6 +36,29 @@ function doGet(e) {
   return template.evaluate().setTitle("課程報名與查詢");
 }
 
+var RESERVED_JSONP_CALLBACKS_ = [
+  "arguments", "await", "break", "case", "catch", "class", "const", "continue",
+  "debugger", "default", "delete", "do", "else", "enum", "eval", "export",
+  "extends", "false", "finally", "for", "function", "if", "implements",
+  "import", "in", "instanceof", "interface", "let", "new", "null", "package",
+  "private", "protected", "public", "return", "static", "super", "switch",
+  "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
+  "yield", "undefined", "NaN", "Infinity"
+];
+
+/**
+ * Accepts only identifier callbacks that are not reserved or special words.
+ *
+ * @param {*} callback Requested JSONP callback.
+ * @return {boolean}
+ */
+function isSafeJsonpCallback_(callback) {
+  return (
+    typeof callback === "string" &&
+    /^[A-Za-z_$][0-9A-Za-z_$]*$/.test(callback) &&
+    RESERVED_JSONP_CALLBACKS_.indexOf(callback) === -1
+  );
+}
 /**
  * Returns all valid public course display fields and their ordered content.
  *
