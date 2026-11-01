@@ -529,11 +529,20 @@ function deleteSheetRows_(sheet, rowNumbers) {
   return rowNumbers.length;
 }
 
+/**
+ * Deletes every row whose key equals keyValue. Not self-locking: callers must
+ * hold the script lock across the full read/delete sequence.
+ */
 function deleteSheetRecordsByValue_(sheetName, key, keyValue) {
   var matches = getMatchingSheetRowNumbers_(sheetName, key, keyValue);
   return deleteSheetRows_(matches.sheet, matches.rowNumbers);
 }
 
+/**
+ * Appends the new records, then deletes the previously matching rows. Not
+ * self-locking: callers must hold the script lock across the full
+ * read/append/delete sequence because row numbers are snapshotted.
+ */
 function replaceSheetRecordsByValue_(sheetName, key, keyValue, records) {
   if (!Object.prototype.hasOwnProperty.call(SHEET_SCHEMAS_, sheetName)) {
     throw new Error("Unknown sheet schema: " + sheetName);
