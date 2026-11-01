@@ -912,6 +912,52 @@ test("replaceSheetRecordsByValue_ with an empty array deletes matches without a 
   ]);
 });
 
+test("replaceSheetRecordsByValue_ keeps old rows when append fails and a retry leaves only desired rows", () => {
+  const sheet = createSheet("CourseOutline", [
+    expectedHeaders.CourseOutline,
+    ["course-1", 1, "Old item"],
+    ["course-2", 1, "Other course item"],
+  ]);
+  const setValuesFailure = new Error("simulated append failure");
+  let failNextAppend = true;
+  const getRange = sheet.getRange.bind(sheet);
+  sheet.getRange = (row, column, rowCount = 1, columnCount = 1) => {
+    const range = getRange(row, column, rowCount, columnCount);
+    if (row <= 3 || rowCount < 2 || !failNextAppend) return range;
+    return {
+      ...range,
+      setValues: (values) => {
+        failNextAppend = false;
+        range.setValues(values.slice(0, 1));
+        throw setValuesFailure;
+      },
+    };
+  };
+  const { context } = loadRepository({ sheets: { CourseOutline: sheet } });
+  const replacements = [
+    { courseId: "course-1", sortOrder: 1, item: "New first item" },
+    { courseId: "course-1", sortOrder: 2, item: "New second item" },
+  ];
+
+  assert.throws(
+    () =>
+      context.replaceSheetRecordsByValue_("CourseOutline", "courseId", "course-1", replacements),
+    (error) => error === setValuesFailure,
+  );
+  assert.ok(
+    sheet.rows.some((row) => row[0] === "course-1" && row[2] === "Old item"),
+  );
+
+  context.replaceSheetRecordsByValue_("CourseOutline", "courseId", "course-1", replacements);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(sheet.rows)), [
+    expectedHeaders.CourseOutline,
+    ["course-2", 1, "Other course item"],
+    ["course-1", 1, "New first item"],
+    ["course-1", 2, "New second item"],
+  ]);
+});
+
 test("initialization leaves exact existing headers and rows intact", () => {
   const rows = [expectedHeaders.Bookings.slice(), ["b1", "L1"]];
   const sheets = { Bookings: createSheet("Bookings", rows) };

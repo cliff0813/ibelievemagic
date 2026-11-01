@@ -490,7 +490,7 @@ function appendSheetRecords_(sheetName, records) {
     .setValues(rows);
 }
 
-function deleteSheetRecordsByValue_(sheetName, key, keyValue) {
+function getMatchingSheetRowNumbers_(sheetName, key, keyValue) {
   if (!Object.prototype.hasOwnProperty.call(SHEET_SCHEMAS_, sheetName)) {
     throw new Error("Unknown sheet schema: " + sheetName);
   }
@@ -505,21 +505,33 @@ function deleteSheetRecordsByValue_(sheetName, key, keyValue) {
     throw new Error("Sheet " + sheetName + " is not initialized");
   }
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) {
-    return 0;
+  var rowNumbers = [];
+  if (lastRow >= 2) {
+    sheet
+      .getRange(2, 1, lastRow - 1, headers.length)
+      .getValues()
+      .forEach(function (row, index) {
+        if (row[keyColumn] === keyValue) {
+          rowNumbers.push(index + 2);
+        }
+      });
   }
+  return { sheet: sheet, rowNumbers: rowNumbers };
+}
 
-  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  var matchingRows = [];
-  values.forEach(function (row, index) {
-    if (row[keyColumn] === keyValue) {
-      matchingRows.push(index + 2);
-    }
-  });
-  matchingRows.reverse().forEach(function (rowNumber) {
-    sheet.deleteRow(rowNumber);
-  });
-  return matchingRows.length;
+function deleteSheetRows_(sheet, rowNumbers) {
+  rowNumbers
+    .slice()
+    .reverse()
+    .forEach(function (rowNumber) {
+      sheet.deleteRow(rowNumber);
+    });
+  return rowNumbers.length;
+}
+
+function deleteSheetRecordsByValue_(sheetName, key, keyValue) {
+  var matches = getMatchingSheetRowNumbers_(sheetName, key, keyValue);
+  return deleteSheetRows_(matches.sheet, matches.rowNumbers);
 }
 
 function replaceSheetRecordsByValue_(sheetName, key, keyValue, records) {
@@ -541,10 +553,12 @@ function replaceSheetRecordsByValue_(sheetName, key, keyValue, records) {
     }
   });
 
-  deleteSheetRecordsByValue_(sheetName, key, keyValue);
+  // Append first so a failed write leaves the existing rows intact.
+  var existing = getMatchingSheetRowNumbers_(sheetName, key, keyValue);
   if (records.length > 0) {
     appendSheetRecords_(sheetName, records);
   }
+  deleteSheetRows_(existing.sheet, existing.rowNumbers);
 }
 
 function updateSheetRecord_(sheetName, key, keyValue, updates) {
