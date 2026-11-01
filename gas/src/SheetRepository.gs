@@ -9,12 +9,8 @@ function initializeWorkbook_() {
   var spreadsheet = getRegistrationSpreadsheet_();
   Object.keys(SHEET_SCHEMAS_).forEach(function (sheetName) {
     var sheet = spreadsheet.getSheetByName(sheetName);
-    var headers = SHEET_SCHEMAS_[sheetName];
-    if (sheet && sheet.getLastColumn() > headers.length) {
-      throw new Error(
-        "Sheet " + sheetName + " has an unexpected header row; expected: " +
-          headers.join(", "),
-      );
+    if (sheet) {
+      validateSheetHeaders_(sheetName, sheet, SHEET_SCHEMAS_[sheetName]);
     }
   });
 
@@ -25,23 +21,24 @@ function initializeWorkbook_() {
     }
 
     var headers = SHEET_SCHEMAS_[sheetName];
-    var width = Math.max(sheet.getLastColumn(), headers.length);
-    var headerRange = sheet.getRange(1, 1, 1, width);
     if (sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       return;
     }
 
-    var existing = headerRange.getValues()[0];
-    if (
-      existing.some(function (value, index) {
-        return value !== (index < headers.length ? headers[index] : "");
-      })
-    ) {
-      throw new Error(
-        "Sheet " + sheetName + " has an unexpected header row; expected: " +
-          headers.join(", "),
-      );
+    var existing = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    if (sheetName === "Courses") {
+      var existingHeaderLength = getHeaderPrefixLength_(existing);
+      if (existingHeaderLength < headers.length) {
+        sheet
+          .getRange(
+            1,
+            existingHeaderLength + 1,
+            1,
+            headers.length - existingHeaderLength,
+          )
+          .setValues([headers.slice(existingHeaderLength)]);
+      }
     }
   });
 
@@ -56,6 +53,9 @@ function initializeWorkbook_() {
         if (header === "manualRegistrationMode") {
           return course.manualRegistrationMode || "AUTO";
         }
+        if (header === "instructorBio" && Array.isArray(course[header])) {
+          return course[header].join("\n");
+        }
         return course[header] == null ? "" : course[header];
       });
     });
@@ -63,6 +63,220 @@ function initializeWorkbook_() {
       .getRange(2, 1, rows.length, courseHeaders.length)
       .setValues(rows);
   }
+
+  seedFallbackCourseDetails_();
+}
+
+function validateSheetHeaders_(sheetName, sheet, headers) {
+  var lastColumn = sheet.getLastColumn();
+  var lastRow = sheet.getLastRow();
+  if (lastColumn > headers.length) {
+    throw unexpectedSheetHeaderError_(sheetName, headers);
+  }
+  if (lastColumn === 0) {
+    if (lastRow > 0) {
+      throw unexpectedSheetHeaderError_(sheetName, headers);
+    }
+    return;
+  }
+
+  var existing = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+  if (
+    existing.every(function (value) {
+      return value == null || value === "";
+    })
+  ) {
+    if (lastRow > 0) {
+      throw unexpectedSheetHeaderError_(sheetName, headers);
+    }
+    return;
+  }
+
+  if (sheetName === "Courses") {
+    var prefixLength = getHeaderPrefixLength_(existing);
+    if (
+      prefixLength > 0 &&
+      prefixLength < headers.length &&
+      existing.slice(0, prefixLength).every(function (value, index) {
+        return value === headers[index];
+      })
+    ) {
+      if (lastRow > 1) {
+        var unheadedValues = sheet
+          .getRange(
+            2,
+            prefixLength + 1,
+            lastRow - 1,
+            headers.length - prefixLength,
+          )
+          .getValues();
+        var hasUnheadedData = unheadedValues.some(function (row) {
+          return row.some(function (value) {
+            return value != null && value !== "";
+          });
+        });
+        if (hasUnheadedData) {
+          throw unexpectedSheetHeaderError_(sheetName, headers);
+        }
+      }
+      return;
+    }
+  }
+
+  var isExactHeader = headers.every(function (header, index) {
+    return existing[index] === header;
+  });
+  if (!isExactHeader) {
+    throw unexpectedSheetHeaderError_(sheetName, headers);
+  }
+}
+
+function getHeaderPrefixLength_(headerRow) {
+  var prefixLength = 0;
+  while (
+    prefixLength < headerRow.length &&
+    headerRow[prefixLength] != null &&
+    headerRow[prefixLength] !== ""
+  ) {
+    prefixLength += 1;
+  }
+  for (var index = prefixLength; index < headerRow.length; index += 1) {
+    if (headerRow[index] != null && headerRow[index] !== "") {
+      return -1;
+    }
+  }
+  return prefixLength;
+}
+
+function unexpectedSheetHeaderError_(sheetName, headers) {
+  return new Error(
+    "Sheet " + sheetName + " has an unexpected header row; expected: " +
+      headers.join(", "),
+  );
+}
+
+function seedFallbackCourseDetails_() {
+  if (!Array.isArray(FALLBACK_COURSES) || FALLBACK_COURSES.length === 0) {
+    return;
+  }
+
+  var spreadsheet = getRegistrationSpreadsheet_();
+  var coursesSheet = spreadsheet.getSheetByName("Courses");
+  if (!coursesSheet || coursesSheet.getLastRow() < 2) {
+    return;
+  }
+
+  var courseHeaders = SHEET_SCHEMAS_.Courses;
+  var courseRows = coursesSheet
+    .getRange(2, 1, coursesSheet.getLastRow() - 1, courseHeaders.length)
+    .getValues();
+  var fallbackById = Object.create(null);
+  FALLBACK_COURSES.forEach(function (fallback) {
+    var courseId = fallbackCourseId_(fallback);
+    if (
+      courseId !== "" &&
+      !Object.prototype.hasOwnProperty.call(fallbackById, courseId)
+    ) {
+      fallbackById[courseId] = fallback;
+    }
+  });
+
+  var seededCourseIds = Object.create(null);
+  courseRows.forEach(function (row, rowIndex) {
+    var courseId = row[courseHeaders.indexOf("courseId")];
+    var fallback = fallbackById[courseId];
+    if (!fallback) {
+      return;
+    }
+
+    seededCourseIds[courseId] = true;
+    ["description", "instructor", "instructorBio"].forEach(function (field) {
+      var column = courseHeaders.indexOf(field);
+      if (row[column] != null && row[column] !== "") {
+        return;
+      }
+
+      var value = fallback[field];
+      if (field === "instructorBio" && Array.isArray(value)) {
+        value = value.join("\n");
+      }
+      if (value == null || value === "") {
+        return;
+      }
+
+      coursesSheet
+        .getRange(rowIndex + 2, column + 1, 1, 1)
+        .setValues([[escapeSheetValue_(value)]]);
+    });
+  });
+
+  seedFallbackContentSheet_(
+    spreadsheet.getSheetByName("CourseOutline"),
+    "CourseOutline",
+    seededCourseIds,
+    fallbackById,
+  );
+  seedFallbackContentSheet_(
+    spreadsheet.getSheetByName("CoursePricing"),
+    "CoursePricing",
+    seededCourseIds,
+    fallbackById,
+  );
+}
+
+function seedFallbackContentSheet_(
+  sheet,
+  sheetName,
+  seededCourseIds,
+  fallbackById,
+) {
+  if (!sheet) {
+    return;
+  }
+
+  var existingCourseIds = Object.create(null);
+  getSheetRecords_(sheetName).forEach(function (record) {
+    if (record.courseId !== "") {
+      existingCourseIds[record.courseId] = true;
+    }
+  });
+
+  var records = [];
+  Object.keys(seededCourseIds).forEach(function (courseId) {
+    if (existingCourseIds[courseId]) {
+      return;
+    }
+
+    var fallback = fallbackById[courseId];
+    var content =
+      sheetName === "CourseOutline" ? fallback.outline : fallback.pricing;
+    if (!Array.isArray(content)) {
+      return;
+    }
+
+    content.forEach(function (item, index) {
+      if (sheetName === "CourseOutline") {
+        records.push({
+          courseId: courseId,
+          sortOrder: index + 1,
+          item: item,
+        });
+      } else {
+        records.push({
+          courseId: courseId,
+          sortOrder: index + 1,
+          label: item && item.label,
+          price: item && item.price,
+        });
+      }
+    });
+  });
+
+  appendSheetRecords_(sheetName, records);
+}
+
+function fallbackCourseId_(course) {
+  return course ? course.courseId || course.id || "" : "";
 }
 
 function getCourses_() {

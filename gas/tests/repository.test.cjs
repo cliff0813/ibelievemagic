@@ -84,9 +84,13 @@ function createSheet(name, rows = []) {
           ),
         setValues: (values) => {
           values.forEach((value, rowOffset) => {
-            this.rows[row - 1 + rowOffset] = value.slice();
-          });
-        },
+              const targetRow = row - 1 + rowOffset;
+              this.rows[targetRow] ||= [];
+              value.forEach((cell, columnOffset) => {
+                this.rows[targetRow][column - 1 + columnOffset] = cell;
+              });
+            });
+          },
       };
     },
     deleteRow(row) {
@@ -96,6 +100,7 @@ function createSheet(name, rows = []) {
 }
 
 function loadRepository({ sheets = {}, spreadsheetError, fallback = [] } = {}) {
+  const insertedSheetNames = [];
   const spreadsheet = {
     getSheetByName(name) {
       if (spreadsheetError) throw spreadsheetError;
@@ -104,6 +109,7 @@ function loadRepository({ sheets = {}, spreadsheetError, fallback = [] } = {}) {
     insertSheet(name) {
       const sheet = createSheet(name);
       sheets[name] = sheet;
+      insertedSheetNames.push(name);
       return sheet;
     },
   };
@@ -135,7 +141,7 @@ function loadRepository({ sheets = {}, spreadsheetError, fallback = [] } = {}) {
       vm.runInContext(fs.readFileSync(filePath, "utf8"), context, { filename });
     }
   }
-  return { context, sheets };
+  return { context, sheets, insertedSheetNames };
 }
 
 test("initialization creates missing sheets with the shared schema headers", () => {
@@ -191,6 +197,33 @@ test("initialization extends the old Courses schema without changing existing ro
   );
 });
 
+test("initialization creates missing content sheets only once", () => {
+  const { context, sheets, insertedSheetNames } = loadRepository();
+
+  context.initializeWorkbook_();
+  const outlineSheet = sheets.CourseOutline;
+  const pricingSheet = sheets.CoursePricing;
+  context.initializeWorkbook_();
+
+  assert.equal(insertedSheetNames.filter((name) => name === "CourseOutline").length, 1);
+  assert.equal(insertedSheetNames.filter((name) => name === "CoursePricing").length, 1);
+  assert.equal(sheets.CourseOutline, outlineSheet);
+  assert.equal(sheets.CoursePricing, pricingSheet);
+});
+
+test("initialization rejects reordered Courses headers without changing rows", () => {
+  const rows = [
+    expectedHeaders.Courses.slice().reverse(),
+    ["course-1", "Existing course", "2026-11-17"],
+  ];
+  const original = JSON.parse(JSON.stringify(rows));
+  const courses = createSheet("Courses", rows);
+  const { context } = loadRepository({ sheets: { Courses: courses } });
+
+  assert.throws(() => context.initializeWorkbook_(), /Courses.*header/i);
+  assert.deepEqual(JSON.parse(JSON.stringify(courses.rows)), original);
+});
+
 test("initialization imports fallback courses only once", () => {
   const fallback = [
     { id: "fallback-course", title: "Fallback", date: "2026-11-17" },
@@ -204,6 +237,125 @@ test("initialization imports fallback courses only once", () => {
   assert.equal(sheets.Courses.rows[1][0], "fallback-course");
   assert.equal(sheets.Courses.rows[1][1], "Fallback");
   assert.equal(sheets.Courses.rows[1][8], "AUTO");
+});
+
+test("initialization seeds blank course details and ordered outline and pricing rows", () => {
+  const fallback = [
+    {
+      id: "fallback-course",
+      title: "Fallback title",
+      description: "Fallback description",
+      instructor: "Fallback instructor",
+      instructorBio: ["Bio line one", "Bio line two"],
+      outline: ["Outline first", "Outline second"],
+      pricing: [
+        { label: "Standard", price: 2500 },
+        { label: "Early bird", price: 2000 },
+      ],
+    },
+  ];
+  const courses = createSheet("Courses", [
+    expectedHeaders.Courses,
+    [
+      "fallback-course",
+      "Sheet title",
+      "2026-11-17",
+      "09:00",
+      "12:00",
+      "Sheet location",
+      "In person",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ],
+  ]);
+  const { context, sheets } = loadRepository({ sheets: { Courses: courses }, fallback });
+
+  context.initializeWorkbook_();
+  context.initializeWorkbook_();
+
+  assert.equal(courses.rows[1][1], "Sheet title");
+  assert.equal(courses.rows[1][2], "2026-11-17");
+  assert.equal(courses.rows[1][5], "Sheet location");
+  assert.equal(courses.rows[1][9], "Fallback description");
+  assert.equal(courses.rows[1][10], "Fallback instructor");
+  assert.equal(courses.rows[1][11], "Bio line one\nBio line two");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sheets.CourseOutline.rows.slice(1))),
+    [
+      ["fallback-course", 1, "Outline first"],
+      ["fallback-course", 2, "Outline second"],
+    ],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sheets.CoursePricing.rows.slice(1))),
+    [
+      ["fallback-course", 1, "Standard", 2500],
+      ["fallback-course", 2, "Early bird", 2000],
+    ],
+  );
+});
+
+test("initialization preserves existing non-empty details and content rows", () => {
+  const fallback = [
+    {
+      courseId: "course-1",
+      title: "Fallback title",
+      description: "Fallback description",
+      instructor: "Fallback instructor",
+      instructorBio: "Fallback bio",
+      outline: ["Fallback outline"],
+      pricing: [{ label: "Fallback price", price: 99 }],
+    },
+  ];
+  const courses = createSheet("Courses", [
+    expectedHeaders.Courses,
+    [
+      "course-1",
+      "Existing title",
+      "2026-11-17",
+      "09:00",
+      "12:00",
+      "Existing location",
+      "In person",
+      "",
+      "OPEN",
+      "Existing description",
+      "Existing instructor",
+      "Existing bio",
+    ],
+  ]);
+  const existingOutline = ["course-1", 1, "Edited outline"];
+  const existingPricing = ["course-1", 1, "Edited price", 123];
+  const { context, sheets } = loadRepository({
+    sheets: {
+      Courses: courses,
+      CourseOutline: createSheet("CourseOutline", [
+        expectedHeaders.CourseOutline,
+        existingOutline.slice(),
+      ]),
+      CoursePricing: createSheet("CoursePricing", [
+        expectedHeaders.CoursePricing,
+        existingPricing.slice(),
+      ]),
+    },
+    fallback,
+  });
+
+  context.initializeWorkbook_();
+
+  assert.equal(courses.rows[1][1], "Existing title");
+  assert.equal(courses.rows[1][5], "Existing location");
+  assert.equal(courses.rows[1][8], "OPEN");
+  assert.equal(courses.rows[1][9], "Existing description");
+  assert.equal(courses.rows[1][10], "Existing instructor");
+  assert.equal(courses.rows[1][11], "Existing bio");
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CourseOutline.rows[1])), existingOutline);
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.CoursePricing.rows[1])), existingPricing);
+  assert.equal(sheets.CourseOutline.rows.length, 2);
+  assert.equal(sheets.CoursePricing.rows.length, 2);
 });
 
 test("an empty Courses sheet returns fallback courses in the canonical schema", () => {
@@ -323,6 +475,36 @@ test("usable Courses rows are returned without adding fallback courses", () => {
       ]),
     },
     fallback,
+  });
+
+  test("getCourses returns content fields and keeps registration normalization", () => {
+    const { context } = loadRepository({
+      sheets: {
+        Courses: createSheet("Courses", [
+          expectedHeaders.Courses,
+          [
+            "sheet-course",
+            "Sheet course",
+            "2026-11-17",
+            "13:30",
+            "16:30",
+            "Hall",
+            "In person",
+            "image",
+            "",
+            "Description",
+            "Instructor",
+            "Instructor biography",
+          ],
+        ]),
+      },
+    });
+
+    const [course] = context.getCourses_();
+    assert.equal(course.description, "Description");
+    assert.equal(course.instructor, "Instructor");
+    assert.equal(course.instructorBio, "Instructor biography");
+    assert.equal(course.manualRegistrationMode, "AUTO");
   });
 
   assert.deepEqual(
