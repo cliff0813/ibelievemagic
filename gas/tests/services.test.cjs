@@ -127,7 +127,8 @@ function createHarness({
       if (
         failNotificationStatusWrite &&
         Object.hasOwn(updates, "notificationEmailStatus") &&
-        updates.notificationEmailStatus !== "PENDING"
+        (updates.notificationEmailStatus === "SENT" ||
+          updates.notificationEmailStatus === "FAILED")
       ) {
         throw new Error("Notification status persistence failed");
       }
@@ -1150,6 +1151,73 @@ test("通知狀態無法持久化時回報錯誤而不假稱寄送成功", () =>
     /notification status persistence failed/i,
   );
   assert.equal(state.mail.length, 1);
-  assert.equal(state.cancellationRequests[0].notificationEmailStatus, "PENDING");
-  assert.equal(context.listAdminCancellationRequests().length, 1);
+  assert.equal(state.cancellationRequests[0].notificationEmailStatus, "SENDING");
+  const listed = context.listAdminCancellationRequests();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].notificationInProgress, true);
+  assert.equal(listed[0].needsRecovery, false);
+  const repeat = context.decideAdminCancellation(request.requestId, "APPROVED");
+  assert.equal(repeat.success, false);
+  assert.equal(repeat.notificationEmailStatus, "SENDING");
+  assert.equal(state.mail.length, 1);
+});
+
+test("同一決定重疊呼叫只寄一封信，最後狀態為 SENT 並明確回報進行中", () => {
+  const { booking, request } = seedCancellation();
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [request],
+  });
+  let inner;
+  state.onMail = () => {
+    state.onMail = null;
+    inner = context.decideAdminCancellation(request.requestId, "APPROVED");
+  };
+
+  const result = context.decideAdminCancellation(request.requestId, "APPROVED");
+
+  assert.equal(state.mail.length, 1);
+  assert.equal(result.notificationEmailStatus, "SENT");
+  assert.equal(inner.success, false);
+  assert.equal(inner.notificationEmailStatus, "SENDING");
+  assert.match(inner.message, /in progress|uncertain|manual/i);
+  assert.equal(state.cancellationRequests[0].notificationEmailStatus, "SENT");
+  assert.equal(state.auditLogs.length, 1);
+});
+
+test("重疊呼叫時寄信失敗只記錄一次 FAILED，且不自動重寄", () => {
+  const { booking, request } = seedCancellation();
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [request],
+    failMailer: true,
+  });
+  state.onMail = () => {
+    state.onMail = null;
+    context.decideAdminCancellation(request.requestId, "APPROVED");
+  };
+
+  const result = context.decideAdminCancellation(request.requestId, "APPROVED");
+
+  assert.equal(state.mail.length, 1);
+  assert.equal(result.notificationEmailStatus, "FAILED");
+  assert.equal(state.cancellationRequests[0].notificationEmailStatus, "FAILED");
+});
+
+test("認領通知前失敗仍可用相同決定恢復並只寄一封信", () => {
+  const { booking, request } = seedCancellation();
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [request],
+    failCancellationFinalizeUpdate: "after",
+  });
+
+  assert.throws(
+    () => context.decideAdminCancellation(request.requestId, "APPROVED"),
+    (error) => error.code === "RECOVERY_REQUIRED",
+  );
+  assert.equal(state.mail.length, 0);
+  const result = context.decideAdminCancellation(request.requestId, "APPROVED");
+  assert.equal(result.notificationEmailStatus, "SENT");
+  assert.equal(state.mail.length, 1);
 });

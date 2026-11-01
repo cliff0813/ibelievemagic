@@ -138,6 +138,7 @@ function listAdminCancellationRequests() {
         reviewedAt: request.reviewedAt,
         notificationEmailStatus: request.notificationEmailStatus,
         needsRecovery: !!recoveryDecision,
+        notificationInProgress: request.notificationEmailStatus === "SENDING",
         recoveryDecision: recoveryDecision,
         leaderName: booking ? booking.leaderName : "",
         leaderEmail: booking ? booking.leaderEmail : "",
@@ -272,6 +273,21 @@ function decideAdminCancellation(requestId, decision) {
       booking = getBookings_().filter(function (item) {
         return item.bookingId === request.bookingId;
       })[0];
+    } else if (
+      request.status === decision &&
+      request.notificationEmailStatus === "SENDING"
+    ) {
+      // Another invocation claimed the notification. MailApp may or may not
+      // have delivered it, so never send again; surface it for manual follow-up.
+      return {
+        success: false,
+        status: decision,
+        notificationEmailStatus: "SENDING",
+        message:
+          "Cancellation decision is saved, but its notification is in progress or " +
+          "its delivery is uncertain (an earlier attempt may have been interrupted); " +
+          "it was not resent. Check with the leader manually before any follow-up",
+      };
     } else {
       throw new Error("Only a PENDING cancellation request can be decided");
     }
@@ -315,6 +331,12 @@ function decideAdminCancellation(requestId, decision) {
         reviewedBy: reviewedBy,
         reviewedAt: reviewedAt,
         notificationEmailStatus: "PENDING",
+      });
+      // At-most-once claim, persisted while the Script Lock is still held. Only
+      // the invocation that writes SENDING may call MailApp. If this write
+      // fails, nothing was sent; the same decision can be repeated safely.
+      updateCancellationRequest_(request.requestId, {
+        notificationEmailStatus: "SENDING",
       });
     } catch (error) {
       throw recoveryRequiredError_("Cancellation decision", error);

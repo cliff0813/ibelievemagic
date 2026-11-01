@@ -147,6 +147,14 @@
               "p",
               "通知狀態：" + (request.notificationEmailStatus || "未記錄"),
             );
+            if (request.notificationInProgress) {
+              appendText(
+                card,
+                "p",
+                "⚠ 通知處於「寄送中／結果不確定」狀態：可能正在寄送，或先前寄送被中斷而無法確認是否已送達。系統不會自動重寄，請手動聯絡團主確認。",
+                "status status-error",
+              );
+            }
             if (request.needsRecovery) {
               appendText(
                 card,
@@ -250,7 +258,10 @@
           setStatus("正在儲存取消審核…", false);
           callServer("decideAdminCancellation", requestId, decision)
             .then(function (result) {
-              setStatus(result.message, result.notificationEmailStatus === "FAILED");
+              setStatus(
+                result.message,
+                !result.success || result.notificationEmailStatus === "FAILED",
+              );
               return refresh();
             })
             .catch(function (error) {
