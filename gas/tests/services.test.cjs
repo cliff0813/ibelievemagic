@@ -70,10 +70,14 @@ function createHarness({
       state.repositoryReads++;
       return [structuredClone(state.course)];
     },
+    normalizeCourse_: (course) => course,
     getSheetRecords_: (sheetName) => {
       state.repositoryReads++;
       if (sheetName === "CourseOutline" || sheetName === "CoursePricing") {
         return [];
+      }
+      if (sheetName === "Courses") {
+        return [structuredClone(state.course)];
       }
       throw new Error("Unexpected sheet read: " + sheetName);
     },

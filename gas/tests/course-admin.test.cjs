@@ -15,6 +15,7 @@ function createHarness({
   authorized = true,
   failure = null,
   lockFailure = null,
+  fallbackCourses = [],
 } = {}) {
   const headersBySheet = {
     Courses: [
@@ -142,7 +143,7 @@ function createHarness({
   }
   const spreadsheet = { getSheetByName: (name) => sheets[name] || null };
   const context = {
-    FALLBACK_COURSES: [],
+    FALLBACK_COURSES: fallbackCourses,
     SpreadsheetApp: {
       getActiveSpreadsheet: () => spreadsheet,
       openById: () => spreadsheet,
@@ -389,6 +390,88 @@ test("create retry rejects different linked content for an existing course witho
   }
 });
 
+const fallbackCourse = () => {
+  const { outline, pricing, ...fields } = course({
+    courseId: "fallback-1",
+    title: "Fallback course",
+  });
+  return { ...fields, manualRegistrationMode: "AUTO" };
+};
+
+test("fallback-only courses are not persisted duplicates and can be created", () => {
+  const harness = createHarness({ fallbackCourses: [fallbackCourse()] });
+
+  harness.context.createAdminCourse(
+    course({ courseId: "fallback-1", title: "Fallback course" }),
+  );
+
+  assert.equal(harness.records("Courses").length, 1);
+  assert.equal(harness.records("Courses")[0].courseId, "fallback-1");
+  assert.equal(harness.records("CourseOutline").length, 2);
+  assert.equal(harness.records("CoursePricing").length, 2);
+});
+
+test("update of a fallback-only course errors before any repository write", () => {
+  const harness = createHarness({
+    fallbackCourses: [fallbackCourse()],
+    outlines: [{ courseId: "fallback-1", sortOrder: 1, item: "Keep" }],
+    bookings: [
+      {
+        bookingId: "b1",
+        courseId: "fallback-1",
+        courseDate: "2026-01-01",
+        status: "CONFIRMED",
+      },
+    ],
+  });
+
+  assert.throws(
+    () =>
+      harness.context.updateAdminCourse(
+        "fallback-1",
+        course({ courseId: "fallback-1", date: "2026-12-25" }),
+      ),
+    /update course fallback-1 failed.*not found/i,
+  );
+  assert.equal(harness.state.writes, 0);
+  assert.equal(harness.records("Bookings")[0].courseDate, "2026-01-01");
+  assert.equal(harness.records("CourseOutline")[0].item, "Keep");
+  assertLockReleased(harness);
+});
+
+test("delete of a fallback-only course errors without deleting linked rows", () => {
+  const harness = createHarness({
+    fallbackCourses: [fallbackCourse()],
+    outlines: [{ courseId: "fallback-1", sortOrder: 1, item: "Keep" }],
+  });
+
+  assert.throws(
+    () => harness.context.deleteAdminCourse("fallback-1"),
+    /delete course fallback-1 failed.*not found/i,
+  );
+  assert.equal(harness.state.writes, 0);
+  assert.equal(harness.records("CourseOutline").length, 1);
+  assertLockReleased(harness);
+});
+
+test("listAdminCourses marks fallback rows as not persisted and sheet rows as persisted", () => {
+  const fallback = createHarness({ fallbackCourses: [fallbackCourse()] });
+  const fallbackList = fallback.context.listAdminCourses();
+  assert.equal(fallbackList.length, 1);
+  assert.equal(fallbackList[0].courseId, "fallback-1");
+  assert.equal(fallbackList[0].persisted, false);
+  assert.equal(fallbackList[0].pendingRecovery, null);
+
+  const stored = createHarness({
+    courses: [course()],
+    fallbackCourses: [fallbackCourse()],
+  });
+  const storedList = stored.context.listAdminCourses();
+  assert.equal(storedList.length, 1);
+  assert.equal(storedList[0].courseId, "course-1");
+  assert.equal(storedList[0].persisted, true);
+});
+
 test("create validates required values, calendar date, time, URL, outline, and pricing before writes", () => {
   const invalidCases = [
     [{ courseId: " " }, /course.?id/i],
@@ -482,6 +565,7 @@ test("listAdminCourses exposes only editable fields and sorted child content wit
   const listed = harness.context.listAdminCourses();
 
   assert.deepEqual(JSON.parse(JSON.stringify(listed)), [{
+    persisted: true,
     courseId: "course-1",
     title: "Course title",
     date: "2026-12-01",

@@ -208,9 +208,14 @@ function listAdminCourses() {
 
   var outlines = getSheetRecords_("CourseOutline");
   var pricing = getSheetRecords_("CoursePricing");
+  var persistedIds = {};
+  getPersistedAdminCourses_().forEach(function (course) {
+    persistedIds[course.courseId] = true;
+  });
   return getCourses_().map(function (course) {
     var pending = findPendingCourseModeIntent_(course.courseId);
     return {
+      persisted: persistedIds[course.courseId] === true,
       courseId: course.courseId,
       title: course.title,
       date: course.date,
@@ -263,7 +268,7 @@ function createAdminCourse(payload) {
     lock.waitLock(30000);
     acquired = true;
     var normalized = normalizeAdminCoursePayload_(payload, courseId, "AUTO");
-    var existing = getCourses_().filter(function (course) {
+    var existing = getPersistedAdminCourses_().filter(function (course) {
       return course.courseId === courseId;
     });
     if (existing.length > 1) {
@@ -318,7 +323,7 @@ function updateAdminCourse(courseId, payload) {
     if (!normalizedId) {
       throw new Error("Course ID is required");
     }
-    var current = getCourses_().filter(function (course) {
+    var current = getPersistedAdminCourses_().filter(function (course) {
       return course.courseId === normalizedId;
     })[0];
     if (!current) {
@@ -384,9 +389,17 @@ function deleteAdminCourse(courseId) {
       throw new Error("Course cannot be deleted while bookings reference it");
     }
 
-    var course = getCourses_().filter(function (item) {
+    var course = getPersistedAdminCourses_().filter(function (item) {
       return item.courseId === normalizedId;
     })[0];
+    if (
+      !course &&
+      FALLBACK_COURSES.some(function (item) {
+        return item.courseId === normalizedId;
+      })
+    ) {
+      throw new Error("Course not found");
+    }
     var hasOutline = getSheetRecords_("CourseOutline").some(function (item) {
       return item.courseId === normalizedId;
     });
@@ -410,6 +423,29 @@ function deleteAdminCourse(courseId) {
       lock.releaseLock();
     }
   }
+}
+
+/**
+ * Reads only Courses sheet rows. CRUD targets and duplicate checks must never
+ * treat virtual FALLBACK_COURSES as persisted records.
+ */
+function getPersistedAdminCourses_() {
+  return getSheetRecords_("Courses")
+    .filter(function (course) {
+      return (
+        typeof course.courseId === "string" && course.courseId.trim() !== ""
+      );
+    })
+    .map(function (course) {
+      if (
+        course.date &&
+        Object.prototype.toString.call(course.date) === "[object Date]" &&
+        isFinite(course.date.getTime())
+      ) {
+        course.date = Utilities.formatDate(course.date, "Asia/Taipei", "yyyy-MM-dd");
+      }
+      return normalizeCourse_(course);
+    });
 }
 
 var ADMIN_COURSE_EDITABLE_FIELDS_ = [
