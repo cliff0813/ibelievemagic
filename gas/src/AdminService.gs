@@ -253,14 +253,15 @@ function listAdminCourses() {
  */
 function createAdminCourse(payload) {
   requireAdmin_();
+  var courseId =
+    payload && typeof payload.courseId === "string"
+      ? payload.courseId.trim()
+      : "";
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  var courseId = "";
+  var acquired = false;
   try {
-    courseId =
-      payload && typeof payload.courseId === "string"
-        ? payload.courseId.trim()
-        : "";
+    lock.waitLock(30000);
+    acquired = true;
     var normalized = normalizeAdminCoursePayload_(payload, courseId, "AUTO");
     var existing = getCourses_().filter(function (course) {
       return course.courseId === courseId;
@@ -283,7 +284,9 @@ function createAdminCourse(payload) {
   } catch (error) {
     throw adminCourseOperationError_("create", courseId, error);
   } finally {
-    lock.releaseLock();
+    if (acquired) {
+      lock.releaseLock();
+    }
   }
 }
 
@@ -297,10 +300,12 @@ function createAdminCourse(payload) {
  */
 function updateAdminCourse(courseId, payload) {
   requireAdmin_();
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
   var normalizedId = typeof courseId === "string" ? courseId.trim() : "";
+  var lock = LockService.getScriptLock();
+  var acquired = false;
   try {
+    lock.waitLock(30000);
+    acquired = true;
     if (!normalizedId) {
       throw new Error("Course ID is required");
     }
@@ -338,7 +343,9 @@ function updateAdminCourse(courseId, payload) {
   } catch (error) {
     throw adminCourseOperationError_("update", normalizedId, error);
   } finally {
-    lock.releaseLock();
+    if (acquired) {
+      lock.releaseLock();
+    }
   }
 }
 
@@ -351,10 +358,12 @@ function updateAdminCourse(courseId, payload) {
  */
 function deleteAdminCourse(courseId) {
   requireAdmin_();
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
   var normalizedId = typeof courseId === "string" ? courseId.trim() : "";
+  var lock = LockService.getScriptLock();
+  var acquired = false;
   try {
+    lock.waitLock(30000);
+    acquired = true;
     if (!normalizedId) {
       throw new Error("Course ID is required");
     }
@@ -388,7 +397,9 @@ function deleteAdminCourse(courseId) {
   } catch (error) {
     throw adminCourseOperationError_("delete", normalizedId, error);
   } finally {
-    lock.releaseLock();
+    if (acquired) {
+      lock.releaseLock();
+    }
   }
 }
 
@@ -593,18 +604,31 @@ function isValidAdminCourseHostname_(hostname) {
 function isValidAdminCourseIpv6_(hostname) {
   if (
     hostname.indexOf(":") < 0 ||
-    !/^[0-9A-Fa-f:.]+$/.test(hostname) ||
-    hostname.indexOf(":::") >= 0
+    !/^[0-9A-Fa-f:.]+$/.test(hostname)
   ) {
     return false;
   }
-  var compressed = hostname.indexOf("::") >= 0;
-  if (compressed && hostname.indexOf("::") !== hostname.lastIndexOf("::")) {
+  var compressionIndex = hostname.indexOf("::");
+  var compressed = compressionIndex >= 0;
+  if (
+    compressed &&
+    compressionIndex !== hostname.lastIndexOf("::")
+  ) {
     return false;
   }
-  var groups = hostname.split(":").filter(function (group) {
-    return group !== "";
-  });
+  var groups;
+  if (compressed) {
+    var left = hostname.slice(0, compressionIndex);
+    var right = hostname.slice(compressionIndex + 2);
+    groups = (left ? left.split(":") : []).concat(
+      right ? right.split(":") : [],
+    );
+  } else {
+    groups = hostname.split(":");
+  }
+  if (groups.some(function (group) { return group === ""; })) {
+    return false;
+  }
   var count = 0;
   for (var index = 0; index < groups.length; index += 1) {
     if (groups[index].indexOf(".") >= 0) {

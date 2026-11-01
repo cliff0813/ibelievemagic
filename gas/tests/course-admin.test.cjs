@@ -14,6 +14,7 @@ function createHarness({
   auditLogs = [],
   authorized = true,
   failure = null,
+  lockFailure = null,
 } = {}) {
   const headersBySheet = {
     Courses: [
@@ -63,6 +64,7 @@ function createHarness({
     acquired: 0,
     released: 0,
     failure: failure && { ...failure },
+    lockFailure,
     uuid: 0,
     writeEvents: [],
   };
@@ -162,6 +164,7 @@ function createHarness({
       getScriptLock: () => ({
         waitLock: (timeout) => {
           assert.equal(timeout, 30000);
+          if (state.lockFailure) throw new Error(state.lockFailure);
           state.acquired += 1;
         },
         releaseLock: () => {
@@ -359,6 +362,8 @@ test("create validates required values, calendar date, time, URL, outline, and p
     [{ endTime: "9:00" }, /time/i],
     [{ image: "not a URL" }, /image|url/i],
     [{ image: "https://example.com/path with space" }, /image|url/i],
+    [{ image: "https://[1:2::3:]/image.png" }, /image|url/i],
+    [{ image: "https://[1::2::3]/image.png" }, /image|url/i],
     [{ outline: ["   "] }, /outline/i],
     [{ outline: [1] }, /outline/i],
     [{ pricing: [{ label: " ", price: 1 }] }, /pricing|label/i],
@@ -386,6 +391,17 @@ test("create validates required values, calendar date, time, URL, outline, and p
     assert.throws(() => harness.context.createAdminCourse(payload), /object/i);
     assertLockReleased(harness);
     assert.equal(harness.state.writes, 0);
+  }
+});
+
+test("create accepts valid compressed and uncompressed IPv6 image URLs", () => {
+  for (const image of [
+    "https://[2001:db8::1]/image.png",
+    "http://[2001:0db8:0000:0000:0000:0000:0000:0001]/image.png",
+  ]) {
+    const harness = createHarness();
+    harness.context.createAdminCourse(course({ image }));
+    assert.equal(harness.records("Courses")[0].image, image);
   }
 });
 
@@ -626,6 +642,42 @@ test("mutating methods acquire and release exactly one lock even on errors", () 
   for (const scenario of scenarios) {
     assert.throws(() => scenario.run(scenario.harness));
     assertLockReleased(scenario.harness);
+  }
+});
+
+test("lock wait failures include operation and course ID without repository access or release", () => {
+  const scenarios = [
+    {
+      operation: "create",
+      courseId: "create-id",
+      run: (context) => context.createAdminCourse(course({ courseId: "create-id" })),
+    },
+    {
+      operation: "update",
+      courseId: "update-id",
+      run: (context) => context.updateAdminCourse("update-id", course()),
+    },
+    {
+      operation: "delete",
+      courseId: "delete-id",
+      run: (context) => context.deleteAdminCourse("delete-id"),
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    const harness = createHarness({ lockFailure: "Lock wait timed out" });
+    assert.throws(
+      () => scenario.run(harness.context),
+      (error) =>
+        error.operation === scenario.operation &&
+        error.courseId === scenario.courseId &&
+        error.message.includes(scenario.operation) &&
+        error.message.includes(scenario.courseId),
+    );
+    assert.equal(harness.state.reads, 0);
+    assert.equal(harness.state.writes, 0);
+    assert.equal(harness.state.acquired, 0);
+    assert.equal(harness.state.released, 0);
   }
 });
 
