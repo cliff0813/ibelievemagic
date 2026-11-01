@@ -92,7 +92,33 @@ npm --prefix gas run sync:fallback
    6. `initializeWorkbook` 會先檢查執行者是否在 `ADMIN_EMAIL_ALLOWLIST`，請確認步驟 7 的白名單包含你目前登入的 Gmail，否則會出現 `Admin sign-in required` 或不在白名單的錯誤。
    7. 若既有標題列與預期不符，會報錯而不覆寫；若出現找不到 `SPREADSHEET_ID` 的錯誤，請回步驟 7 檢查屬性名稱與值。
 
-### 2.2 部署兩個 Web App（同一份程式碼、兩個部署）
+### 2.2 課程工作表欄位與公開資料
+
+`initializeWorkbook` 會建立下列標題列。`Courses` 保留既有欄位，並新增可編輯的 `description`、`instructor`、`instructorBio`；欄位順序及大小寫必須完全相同：
+
+| 工作表 | 第一列標題（依序） |
+| --- | --- |
+| `Courses` | `courseId`, `title`, `date`, `startTime`, `endTime`, `location`, `mode`, `image`, `manualRegistrationMode`, `description`, `instructor`, `instructorBio` |
+| `CourseOutline` | `courseId`, `sortOrder`, `item` |
+| `CoursePricing` | `courseId`, `sortOrder`, `label`, `price` |
+
+- 在 `Courses` 每列填寫課程基本資料；`description` 是課程介紹、`instructor` 是講師名稱、`instructorBio` 是講師簡介（多項內容可用換行分隔）。
+- `CourseOutline` 每列是一個大綱項目，`CoursePricing` 每列是一個價格項目。兩個分頁的 `courseId` 必須與對應的 `Courses.courseId` 完全相同；同一課程的項目依 `sortOrder` 數值由小到大顯示。
+- 公開唯讀課程端點會回傳課程顯示欄位 `courseId`、`title`、`date`、`startTime`、`endTime`、`location`、`mode`、`image`、`description`、`instructor`、`instructorBio`，以及依序排列的 `outline` 和 `pricing`（每筆價格包含 `label`、`price`）。任何透過此端點送出的內容都可由任何人讀取；只放適合公開的課程資訊，**不得放入個人資料、聯絡資料、內部備註或任何管理／行政資料**。
+
+### 2.3 既有試算表安全遷移與課程即時更新
+
+既有 Google Sheets 使用新課程欄位前，先將擴充後的 Apps Script 程式推送，再執行一次安全初始化，最後更新既有的公開部署版本：
+
+1. 在專案根目錄執行 `npm --prefix gas run push`，將擴充後的 GAS 程式推送至已連結的 Apps Script 專案。
+2. 在 Apps Script 編輯器選取 `SheetRepository.gs` 中公開入口 **`initializeWorkbook`** 並執行；第一次執行時依提示完成 Google 授權。等執行記錄顯示完成後，重新整理試算表並確認新增欄位及 `CourseOutline`、`CoursePricing` 分頁。
+3. 初始化會驗證既有標題；對相符的舊 `Courses` 標題列只補上缺少的新欄位，建立缺少的內容分頁，且只補空白／缺少的備援內容，不覆寫已填資料。若標題不符，初始化會停止並報錯；請先檢查標題，不要清除或重建既有資料。
+4. 在 Apps Script 編輯器選「**部署**」→「**管理部署**」，選取現有的「公開註冊」部署，點鉛筆圖示，將版本設為「**新版本**」，再按「**部署**」。這次更新是既有公開部署發布一次新版本，**不要建立新的公開部署**；既有 `/exec` 網址維持不變。
+5. 在 `Courses` 修改一門課程的 `location`、`description`，並在相同 `courseId` 的 `CourseOutline`、`CoursePricing` 修改大綱與價格；儲存後重新載入網站課程列表／詳情頁，確認最新值出現。這項線上驗收需由使用者使用實際 Google 試算表與部署完成，本機檢查無法代替。
+
+網站重新載入時會向公開課程端點讀取目前的試算表資料，因此**日常修改工作表內容不需要推送 GAS 程式碼，也不需要重新建置或部署 GitHub Pages**。只有 Apps Script 程式碼改動才需要 push，並依上方流程執行初始化及發布新版本。
+
+### 2.4 部署兩個 Web App（同一份程式碼、兩個部署）
 
 先理解概念：只有**一份程式碼**，但要在 Apps Script 建立**兩個部署**，各自有不同的 `/exec` 網址與不同的執行設定。程式碼用網址參數區分頁面：
 
@@ -144,12 +170,12 @@ npm --prefix gas run sync:fallback
 
 #### D. 更新程式後如何讓兩個部署生效
 
-只 `push` 不會更新已部署的網址。每次修改程式碼後：
+只 `push` 不會更新已部署的網址。程式碼推送後，依變更範圍更新既有部署（網址／部署 ID 不變）：
 
 1. `npm --prefix gas run push`。
 2. Apps Script 編輯器「**部署**」→「**管理部署**」。
-3. 左側選「公開註冊」，點右上**鉛筆圖示**，「版本」選「**新版本**」，按「**部署**」。
-4. 對「管理」重複步驟 3。網址（部署 ID）不會改變。
+3. 若變更影響公開報名、課程列表或詳情，左側選「公開註冊」，點右上**鉛筆圖示**，「版本」選「**新版本**」，按「**部署**」。
+4. 若變更影響管理頁，對「管理」重複步驟 3；同時影響兩者時，兩個部署都要更新。本次課程工作表即時資料擴充只需發布既有「公開註冊」部署一次，流程見「[既有試算表安全遷移與課程即時更新](#23-既有試算表安全遷移與課程即時更新)」。
 
 #### 補充
 
