@@ -7,7 +7,13 @@ const vm = require("node:vm");
 const sourceDirectory = path.join(__dirname, "..", "src");
 
 // Live HtmlService/google.script.run acceptance remains pending; GAS deployment credentials are unavailable here.
-function loadWebApp(courses) {
+function loadWebApp(courses, options = {}) {
+  const contentRecords = {
+    CourseOutline: options.outline || [],
+    CoursePricing: options.pricing || [],
+  };
+  const missingSheets = new Set(options.missingSheets || []);
+  const sheetReadErrors = options.sheetReadErrors || {};
   const context = {
     adminChecks: 0,
     requireAdmin_: () => {
@@ -15,8 +21,30 @@ function loadWebApp(courses) {
       return "admin@example.com";
     },
     getCourses_: () => structuredClone(courses),
+    getRegistrationSpreadsheet_: () => ({
+      getSheetByName(name) {
+        return missingSheets.has(name) ? null : { name };
+      },
+    }),
+    getSheetRecords_: (name) => {
+      if (sheetReadErrors[name]) throw sheetReadErrors[name];
+      return structuredClone(contentRecords[name]);
+    },
     getCourseAvailability_: (date, now, manualMode) =>
       date > "2026-11-01" && manualMode !== "CLOSED" ? "OPEN" : "CLOSED",
+    ContentService: {
+      MimeType: { JAVASCRIPT: "application/javascript" },
+      createTextOutput(content) {
+        return {
+          content,
+          mimeType: "",
+          setMimeType(mimeType) {
+            this.mimeType = mimeType;
+            return this;
+          },
+        };
+      },
+    },
     HtmlService: {
       createTemplateFromFile(name) {
         const template = {
@@ -42,6 +70,156 @@ function loadWebApp(courses) {
   vm.runInContext(fs.readFileSync(filename, "utf8"), context, { filename });
   return context;
 }
+
+test("public course JSONP includes allowlisted display fields for every valid course", () => {
+  const context = loadWebApp(
+    [
+      {
+        courseId: "open-1",
+        title: "開放課程",
+        date: "2026-12-01",
+        startTime: "10:00",
+        endTime: "12:00",
+        location: "台北",
+        mode: "實體",
+        image: "https://example.com/course.png",
+        description: "課程介紹",
+        instructor: "講師",
+        instructorBio: "講師介紹",
+        manualRegistrationMode: "AUTO",
+        spreadsheetId: "private-sheet-id",
+        bookings: [{ bookingId: "private-booking-id" }],
+        unexpectedPrivateField: "private-value",
+      },
+      {
+        courseId: "closed-1",
+        title: "關閉課程",
+        date: "2026-12-02",
+        manualRegistrationMode: "CLOSED",
+      },
+      {
+        courseId: "expired-1",
+        title: "過期課程",
+        date: "2026-10-30",
+        manualRegistrationMode: "AUTO",
+      },
+      { courseId: "", title: "無效課程" },
+      { courseId: "missing-title" },
+    ],
+    {
+      outline: [
+        { courseId: "open-1", sortOrder: 20, item: "第二項" },
+        { courseId: "closed-1", sortOrder: 1, item: "關閉課程大綱" },
+        { courseId: "open-1", sortOrder: 10, item: "第一項" },
+      ],
+      pricing: [
+        { courseId: "open-1", sortOrder: 2, label: "優惠", price: 800 },
+        { courseId: "expired-1", sortOrder: 1, label: "過期課程費用", price: 0 },
+        { courseId: "open-1", sortOrder: 1, label: "原價", price: 1000 },
+      ],
+    },
+  );
+
+  const response = context.doGet({
+    parameter: { format: "courses", callback: "courseCallback" },
+  });
+
+  assert.equal(response.mimeType, "application/javascript");
+  assert.match(response.content, /^courseCallback\([\s\S]*\);$/);
+  const payload = JSON.parse(response.content.match(/^courseCallback\(([\s\S]*)\);$/)[1]);
+  assert.deepEqual(JSON.parse(JSON.stringify(payload)), [
+    {
+      courseId: "open-1",
+      title: "開放課程",
+      date: "2026-12-01",
+      startTime: "10:00",
+      endTime: "12:00",
+      location: "台北",
+      mode: "實體",
+      image: "https://example.com/course.png",
+      description: "課程介紹",
+      instructor: "講師",
+      instructorBio: "講師介紹",
+      outline: ["第一項", "第二項"],
+      pricing: [
+        { label: "原價", price: 1000 },
+        { label: "優惠", price: 800 },
+      ],
+    },
+    {
+      courseId: "closed-1",
+      title: "關閉課程",
+      date: "2026-12-02",
+      startTime: "",
+      endTime: "",
+      location: "",
+      mode: "",
+      image: "",
+      description: "",
+      instructor: "",
+      instructorBio: "",
+      outline: ["關閉課程大綱"],
+      pricing: [],
+    },
+    {
+      courseId: "expired-1",
+      title: "過期課程",
+      date: "2026-10-30",
+      startTime: "",
+      endTime: "",
+      location: "",
+      mode: "",
+      image: "",
+      description: "",
+      instructor: "",
+      instructorBio: "",
+      outline: [],
+      pricing: [{ label: "過期課程費用", price: 0 }],
+    },
+  ]);
+});
+
+test("public course JSONP rejects callbacks outside the JavaScript identifier allowlist", () => {
+  const context = loadWebApp([]);
+
+  for (const callback of ["courseCallback.alert(1)", "bad-name", "1bad", ""]) {
+    assert.throws(
+      () => context.doGet({ parameter: { format: "courses", callback } }),
+      /callback/i,
+    );
+  }
+});
+
+test("public course JSONP treats missing detail sheets as empty content", () => {
+  const context = loadWebApp(
+    [{ courseId: "course-1", title: "課程" }],
+    { missingSheets: ["CourseOutline", "CoursePricing"] },
+  );
+
+  const response = context.doGet({
+    parameter: { format: "courses", callback: "courseCallback" },
+  });
+  const payload = JSON.parse(response.content.match(/^courseCallback\(([\s\S]*)\);$/)[1]);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(payload[0].outline)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(payload[0].pricing)), []);
+});
+
+test("public course JSONP propagates content sheet read failures", () => {
+  const readError = new Error("CourseOutline read failed");
+  const context = loadWebApp(
+    [{ courseId: "course-1", title: "課程" }],
+    { sheetReadErrors: { CourseOutline: readError } },
+  );
+
+  assert.throws(
+    () =>
+      context.doGet({
+        parameter: { format: "courses", callback: "courseCallback" },
+      }),
+    (error) => error === readError,
+  );
+});
 
 test("public course API returns only open, displayable fields", () => {
   const context = loadWebApp([
