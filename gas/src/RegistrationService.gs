@@ -277,7 +277,10 @@ function requestCancellation(lookupCode, leaderPhone, reason) {
     }
     var pendingRequest = getCancellationRequests_().some(function (request) {
       return (
-        request.bookingId === booking.bookingId && request.status === "PENDING"
+        request.bookingId === booking.bookingId &&
+        (request.status === "PENDING" ||
+          request.status === "APPROVING" ||
+          request.status === "REJECTING")
       );
     });
     if (pendingRequest) {

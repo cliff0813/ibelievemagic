@@ -151,6 +151,9 @@ test("admin page supports booking inspection, cancellation decisions and course 
   assert.match(html, /listAdminCancellationRequests/);
   assert.match(html, /decideAdminCancellation/);
   assert.match(html, /setCourseRegistrationMode/);
+  assert.match(html, /needsRecovery/);
+  assert.match(html, /pendingRecovery/);
+  assert.match(html, /繼續完成/);
   assert.match(html, /\.textContent\s*=/);
   assert.doesNotMatch(html, /\.innerHTML\s*=/);
   assert.doesNotMatch(html, /deleteRow|deleteBooking|deleteRequest/i);

@@ -147,6 +147,24 @@
               "p",
               "通知狀態：" + (request.notificationEmailStatus || "未記錄"),
             );
+            if (request.needsRecovery) {
+              appendText(
+                card,
+                "p",
+                "⚠ 此申請尚未完整處理（決定：" +
+                  request.recoveryDecision +
+                  "），需要恢復。請按「繼續完成」以相同決定安全續行；不可改為其他決定。",
+                "status status-error",
+              );
+              var recoveryActions = document.createElement("div");
+              recoveryActions.className = "admin-actions";
+              recoveryActions.appendChild(
+                makeButton("繼續完成", "button-primary", function () {
+                  decide(request.requestId, request.recoveryDecision);
+                }),
+              );
+              card.appendChild(recoveryActions);
+            }
             if (request.status === "PENDING") {
               var actions = document.createElement("div");
               actions.className = "admin-actions";
@@ -178,6 +196,25 @@
               "p",
               "手動模式：" + (course.manualRegistrationMode || "AUTO"),
             );
+            if (course.pendingRecovery) {
+              appendText(
+                card,
+                "p",
+                "⚠ 課程報名模式變更（" +
+                  course.pendingRecovery.mode +
+                  "）尚未完整處理，需要恢復。請按「繼續完成」安全續行。",
+                "status status-error",
+              );
+              var courseRecoveryActions = document.createElement("div");
+              courseRecoveryActions.className = "admin-actions";
+              courseRecoveryActions.appendChild(
+                makeButton("繼續完成", "button-primary", function () {
+                  setCourseMode(course.courseId, course.pendingRecovery.mode);
+                }),
+              );
+              card.appendChild(courseRecoveryActions);
+              return;
+            }
             var actions = document.createElement("div");
             actions.className = "admin-actions";
             actions.appendChild(

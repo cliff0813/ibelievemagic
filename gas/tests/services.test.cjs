@@ -28,11 +28,17 @@ function createHarness({
   failNotificationStatusWrite = false,
   failCancellationDecisionUpdate = false,
   failAuditAppendActions = [],
+  failAuditAppendNoWriteActions = [],
+  failCancellationFinalizeUpdate = false, // "before" | "after" the write lands
+  failCourseUpdateOnce = false,
   failAdminBookingRollback = false,
   now = 0,
 } = {}) {
   let shouldFailCancellationDecisionUpdate = failCancellationDecisionUpdate;
   const auditActionsToFail = [...failAuditAppendActions];
+  const auditNoWriteActionsToFail = [...failAuditAppendNoWriteActions];
+  let shouldFailCancellationFinalize = failCancellationFinalizeUpdate;
+  let shouldFailCourseUpdate = failCourseUpdateOnce;
   const state = {
     bookings: structuredClone(bookings),
     participants: structuredClone(participants),
@@ -112,6 +118,13 @@ function createHarness({
     updateCancellationRequest_: (requestId, updates) => {
       state.repositoryWrites++;
       if (
+        shouldFailCancellationFinalize === "before" &&
+        (updates.status === "APPROVED" || updates.status === "REJECTED")
+      ) {
+        shouldFailCancellationFinalize = false;
+        throw new Error("Cancellation finalize update failed");
+      }
+      if (
         failNotificationStatusWrite &&
         Object.hasOwn(updates, "notificationEmailStatus") &&
         updates.notificationEmailStatus !== "PENDING"
@@ -130,6 +143,13 @@ function createHarness({
         shouldFailCancellationDecisionUpdate = false;
         throw new Error("Cancellation decision request update failed");
       }
+      if (
+        shouldFailCancellationFinalize === "after" &&
+        (updates.status === "APPROVED" || updates.status === "REJECTED")
+      ) {
+        shouldFailCancellationFinalize = false;
+        throw new Error("Cancellation finalize update failed");
+      }
     },
     insertCancellationRequest_: (request) => {
       state.repositoryWrites++;
@@ -137,6 +157,10 @@ function createHarness({
     },
     updateCourse_: (courseId, updates) => {
       state.repositoryWrites++;
+      if (shouldFailCourseUpdate) {
+        shouldFailCourseUpdate = false;
+        throw new Error("Course update failed");
+      }
       if (state.course.courseId !== courseId) throw new Error("Course not found");
       Object.assign(state.course, structuredClone(updates));
     },
@@ -146,6 +170,11 @@ function createHarness({
     },
     insertAuditLog_: (entry) => {
       state.repositoryWrites++;
+      const noWriteIndex = auditNoWriteActionsToFail.indexOf(entry.action);
+      if (noWriteIndex >= 0) {
+        auditNoWriteActionsToFail.splice(noWriteIndex, 1);
+        throw new Error("Audit append failed");
+      }
       state.auditLogs.push(structuredClone(entry));
       const failureIndex = auditActionsToFail.indexOf(entry.action);
       if (failureIndex >= 0) {
@@ -842,7 +871,11 @@ test("非 PENDING 取消申請不能被決定且不改變報名或留下稽核",
   assert.equal(state.mail.length, 0);
 });
 
-test("取消申請更新即使寫入後回報錯誤也回滾，且可安全重試", () => {
+function finalAudits(state) {
+  return state.auditLogs.filter((entry) => !entry.action.endsWith("_INTENT"));
+}
+
+test("取消決定意圖寫入後回報錯誤時保留可恢復意圖，同決定可續行且不同決定被拒", () => {
   const { booking, request } = seedCancellation();
   const { context, state } = createHarness({
     bookings: [booking],
@@ -852,78 +885,149 @@ test("取消申請更新即使寫入後回報錯誤也回滾，且可安全重�
 
   assert.throws(
     () => context.decideAdminCancellation(request.requestId, "APPROVED"),
-    /cancellation decision request update failed/i,
+    (error) =>
+      error.code === "RECOVERY_REQUIRED" &&
+      /cancellation decision request update failed/i.test(error.message),
   );
   assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
-  assert.equal(state.cancellationRequests[0].status, "PENDING");
-  assert.equal(state.cancellationRequests[0].reviewedBy, "");
+  assert.equal(state.cancellationRequests[0].status, "APPROVING");
   assert.equal(state.auditLogs.length, 0);
   assert.equal(state.mail.length, 0);
   assert.equal(state.lockAcquired, 1);
   assert.equal(state.lockReleased, 1);
-
-  const retry = context.decideAdminCancellation(request.requestId, "APPROVED");
-
-  assert.equal(retry.success, true);
-  assert.equal(state.bookings[0].status, "CANCELLED");
-  assert.equal(state.cancellationRequests[0].status, "APPROVED");
-  assert.equal(state.auditLogs.length, 1);
-  assert.equal(state.lockAcquired, 2);
-  assert.equal(state.lockReleased, 2);
-});
-
-test("取消稽核寫入失敗會回滾所有提交並允許重試", () => {
-  const { booking, request } = seedCancellation();
-  const { context, state } = createHarness({
-    bookings: [booking],
-    cancellationRequests: [request],
-    failAuditAppendActions: ["CANCELLATION_APPROVED"],
-  });
 
   assert.throws(
-    () => context.decideAdminCancellation(request.requestId, "APPROVED"),
-    /audit append failed/i,
+    () => context.decideAdminCancellation(request.requestId, "REJECTED"),
+    /in-flight|resume/i,
   );
   assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
-  assert.equal(state.cancellationRequests[0].status, "PENDING");
-  assert.equal(state.cancellationRequests[0].reviewedBy, "");
-  assert.equal(state.auditLogs.length, 0);
-  assert.equal(state.mail.length, 0);
-  assert.equal(state.lockAcquired, 1);
-  assert.equal(state.lockReleased, 1);
+  assert.equal(state.cancellationRequests[0].status, "APPROVING");
+  assert.equal(state.lockReleased, 2);
 
   const retry = context.decideAdminCancellation(request.requestId, "APPROVED");
 
   assert.equal(retry.success, true);
   assert.equal(state.bookings[0].status, "CANCELLED");
   assert.equal(state.cancellationRequests[0].status, "APPROVED");
+  assert.equal(finalAudits(state).length, 1);
   assert.equal(state.auditLogs.length, 1);
-  assert.equal(state.lockAcquired, 2);
-  assert.equal(state.lockReleased, 2);
+  assert.equal(state.lockAcquired, 3);
+  assert.equal(state.lockReleased, 3);
 });
 
-test("取消回滾未完成時明確回報部分提交錯誤", () => {
+test("取消稽核寫入失敗（寫入前或寫入後）重試只會留下一筆穩定編號稽核", () => {
+  for (const decision of ["APPROVED", "REJECTED"]) {
+    for (const option of [
+      "failAuditAppendActions",
+      "failAuditAppendNoWriteActions",
+    ]) {
+      const { booking, request } = seedCancellation();
+      const { context, state } = createHarness({
+        bookings: [booking],
+        cancellationRequests: [request],
+        [option]: [`CANCELLATION_${decision}`],
+      });
+
+      assert.throws(
+        () => context.decideAdminCancellation(request.requestId, decision),
+        (error) =>
+          error.code === "RECOVERY_REQUIRED" && /audit append failed/i.test(error.message),
+      );
+      assert.equal(
+        state.bookings[0].status,
+        decision === "APPROVED" ? "CANCELLED" : "SUBMITTED",
+      );
+      assert.equal(state.cancellationRequests[0].status, `${decision === "APPROVED" ? "APPROVING" : "REJECTING"}`);
+      assert.equal(state.mail.length, 0);
+      assert.equal(state.lockReleased, 1);
+
+      const retry = context.decideAdminCancellation(request.requestId, decision);
+
+      assert.equal(retry.success, true);
+      assert.equal(state.cancellationRequests[0].status, decision);
+      assert.equal(state.auditLogs.length, 1);
+      assert.equal(
+        state.auditLogs[0].eventId,
+        `cancellation:${request.requestId}:${decision}`,
+      );
+      assert.equal(state.mail.length, 1);
+      assert.equal(state.lockAcquired, 2);
+      assert.equal(state.lockReleased, 2);
+
+      assert.throws(
+        () => context.decideAdminCancellation(request.requestId, decision),
+        /pending/i,
+      );
+      assert.equal(state.auditLogs.length, 1);
+    }
+  }
+});
+
+test("取消回滾必然失敗也不依賴回滾：保留意圖、列表標示需恢復、同決定續行完成", () => {
+  for (const [when, midStatus] of [
+    ["before", "APPROVING"],
+    ["after", "APPROVED"],
+  ]) {
   const { booking, request } = seedCancellation();
   const { context, state } = createHarness({
     bookings: [booking],
     cancellationRequests: [request],
-    failCancellationDecisionUpdate: true,
+    failCancellationFinalizeUpdate: when,
     failAdminBookingRollback: true,
   });
 
   assert.throws(
     () => context.decideAdminCancellation(request.requestId, "APPROVED"),
     (error) =>
-      error.name === "PartialCommitError" &&
-      error.code === "PARTIAL_COMMIT" &&
-      /booking rollback failed/i.test(error.message),
+      error.code === "RECOVERY_REQUIRED" &&
+      /cancellation finalize update failed/i.test(error.message),
   );
   assert.equal(state.bookings[0].status, "CANCELLED");
-  assert.equal(state.cancellationRequests[0].status, "PENDING");
-  assert.equal(state.auditLogs.length, 0);
+  assert.equal(state.cancellationRequests[0].status, midStatus);
+  assert.equal(state.auditLogs.length, 1);
   assert.equal(state.mail.length, 0);
-  assert.equal(state.lockAcquired, 1);
   assert.equal(state.lockReleased, 1);
+
+  const listed = context.listAdminCancellationRequests();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].needsRecovery, true);
+  assert.equal(listed[0].recoveryDecision, "APPROVED");
+
+  assert.throws(
+    () => context.decideAdminCancellation(request.requestId, "REJECTED"),
+    /in-flight|resume|PENDING/i,
+  );
+  assert.equal(state.bookings[0].status, "CANCELLED");
+  assert.equal(state.auditLogs.length, 1);
+
+  const resumed = context.decideAdminCancellation(request.requestId, "APPROVED");
+
+  assert.equal(resumed.success, true);
+  assert.equal(state.bookings[0].status, "CANCELLED");
+  assert.equal(state.cancellationRequests[0].status, "APPROVED");
+  assert.equal(state.cancellationRequests[0].reviewedBy, "admin@example.com");
+  assert.equal(state.auditLogs.length, 1);
+  assert.equal(state.mail.length, 1);
+  assert.equal(state.lockAcquired, 3);
+  assert.equal(state.lockReleased, 3);
+  assert.equal(context.listAdminCancellationRequests().length, 0);
+  }
+});
+
+test("未授權者不能續行進行中的取消決定", () => {
+  const { booking, request } = seedCancellation("APPROVING");
+  const { context, state } = createHarness({
+    bookings: [{ ...booking, status: "CANCELLED" }],
+    cancellationRequests: [request],
+    activeUserEmail: "intruder@example.com",
+  });
+
+  assert.throws(
+    () => context.decideAdminCancellation(request.requestId, "APPROVED"),
+    /admin/i,
+  );
+  assert.equal(state.repositoryWrites, 0);
+  assert.equal(state.lockAcquired, 0);
 });
 
 test("管理員可立即關閉並稽核課程；截止後重開明確失敗且不修改資料", () => {
@@ -933,16 +1037,16 @@ test("管理員可立即關閉並稽核課程；截止後重開明確失敗且�
 
   assert.equal(opened.manualRegistrationMode, "OPEN");
   assert.equal(state.course.manualRegistrationMode, "OPEN");
-  assert.equal(state.auditLogs[0].action, "COURSE_REGISTRATION_OPEN");
+  assert.equal(finalAudits(state)[0].action, "COURSE_REGISTRATION_OPEN");
 
   const closed = context.setCourseRegistrationMode("course-1", "CLOSED");
 
   assert.equal(closed.manualRegistrationMode, "CLOSED");
   assert.equal(state.course.manualRegistrationMode, "CLOSED");
-  assert.equal(state.auditLogs.length, 2);
-  assert.equal(state.auditLogs[1].actorEmail, "admin@example.com");
-  assert.equal(state.auditLogs[1].action, "COURSE_REGISTRATION_CLOSED");
-  assert.equal(state.auditLogs[1].recordId, "course-1");
+  assert.equal(finalAudits(state).length, 2);
+  assert.equal(finalAudits(state)[1].actorEmail, "admin@example.com");
+  assert.equal(finalAudits(state)[1].action, "COURSE_REGISTRATION_CLOSED");
+  assert.equal(finalAudits(state)[1].recordId, "course-1");
 
   const pastCourseHarness = createHarness({
     course: {
@@ -967,28 +1071,70 @@ test("管理員可立即關閉並稽核課程；截止後重開明確失敗且�
   assert.equal(pastCourseHarness.state.auditLogs.length, 0);
 });
 
-test("課程稽核寫入失敗會回滾模式且可安全重試", () => {
+test("課程稽核寫入失敗（寫入前）保留待恢復意圖，同模式續行且只產生一筆最終稽核", () => {
   const { context, state } = createHarness({
-    failAuditAppendActions: ["COURSE_REGISTRATION_CLOSED"],
+    failAuditAppendNoWriteActions: ["COURSE_REGISTRATION_CLOSED"],
   });
 
   assert.throws(
     () => context.setCourseRegistrationMode("course-1", "CLOSED"),
-    /audit append failed/i,
+    (error) =>
+      error.code === "RECOVERY_REQUIRED" && /audit append failed/i.test(error.message),
   );
-  assert.equal(state.course.manualRegistrationMode, "AUTO");
-  assert.equal(state.auditLogs.length, 0);
-  assert.equal(state.lockAcquired, 1);
+  assert.equal(state.course.manualRegistrationMode, "CLOSED");
+  assert.equal(finalAudits(state).length, 0);
+  assert.equal(state.auditLogs.length, 1);
   assert.equal(state.lockReleased, 1);
+  const pending = context
+    .listAdminCourses()
+    .find((course) => course.courseId === "course-1");
+  assert.equal(pending.pendingRecovery.mode, "CLOSED");
+
+  assert.throws(
+    () => context.setCourseRegistrationMode("course-1", "OPEN"),
+    /in-flight|resume/i,
+  );
+  assert.equal(state.course.manualRegistrationMode, "CLOSED");
+  assert.equal(state.lockReleased, 2);
 
   const retry = context.setCourseRegistrationMode("course-1", "CLOSED");
 
   assert.equal(retry.manualRegistrationMode, "CLOSED");
-  assert.equal(state.course.manualRegistrationMode, "CLOSED");
-  assert.equal(state.auditLogs.length, 1);
-  assert.equal(state.auditLogs[0].action, "COURSE_REGISTRATION_CLOSED");
-  assert.equal(state.lockAcquired, 2);
-  assert.equal(state.lockReleased, 2);
+  assert.equal(finalAudits(state).length, 1);
+  assert.equal(finalAudits(state)[0].action, "COURSE_REGISTRATION_CLOSED");
+  assert.equal(finalAudits(state)[0].actorEmail, "admin@example.com");
+  assert.equal(context.listAdminCourses()[0].pendingRecovery, null);
+  assert.equal(state.lockAcquired, 3);
+  assert.equal(state.lockReleased, 3);
+
+  context.setCourseRegistrationMode("course-1", "OPEN");
+  assert.equal(finalAudits(state).length, 2);
+});
+
+test("課程稽核寫入後回報錯誤與課程更新失敗重試都不重複稽核", () => {
+  const afterWrite = createHarness({
+    failAuditAppendActions: ["COURSE_REGISTRATION_CLOSED"],
+  });
+  assert.throws(
+    () => afterWrite.context.setCourseRegistrationMode("course-1", "CLOSED"),
+    /audit append failed/i,
+  );
+  afterWrite.context.setCourseRegistrationMode("course-1", "CLOSED");
+  assert.equal(finalAudits(afterWrite.state).length, 1);
+  assert.equal(afterWrite.state.course.manualRegistrationMode, "CLOSED");
+
+  const updateFailure = createHarness({ failCourseUpdateOnce: true });
+  assert.throws(
+    () => updateFailure.context.setCourseRegistrationMode("course-1", "CLOSED"),
+    (error) =>
+      error.code === "RECOVERY_REQUIRED" && /course update failed/i.test(error.message),
+  );
+  assert.equal(updateFailure.state.course.manualRegistrationMode, "AUTO");
+  assert.equal(finalAudits(updateFailure.state).length, 0);
+  assert.equal(updateFailure.state.lockReleased, 1);
+  updateFailure.context.setCourseRegistrationMode("course-1", "CLOSED");
+  assert.equal(updateFailure.state.course.manualRegistrationMode, "CLOSED");
+  assert.equal(finalAudits(updateFailure.state).length, 1);
 });
 
 test("通知狀態無法持久化時回報錯誤而不假稱寄送成功", () => {
