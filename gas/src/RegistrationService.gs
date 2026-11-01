@@ -272,7 +272,7 @@ function requestCancellation(lookupCode, leaderPhone, reason) {
     if (!booking) {
       throw new Error("Booking not found");
     }
-    if (booking.status !== "SUBMITTED") {
+    if (booking.status !== "SUBMITTED" && booking.status !== "CANCELLATION_PENDING") {
       throw new Error("Cancellation cannot be requested for this booking");
     }
     var openRequests = getCancellationRequests_().filter(function (request) {
@@ -292,6 +292,12 @@ function requestCancellation(lookupCode, leaderPhone, reason) {
     })[0];
     if (openRequests.length > 1 || (openRequests.length === 1 && !intent)) {
       throw new Error("A cancellation request is already pending");
+    }
+
+    // Booking CANCELLATION_PENDING is only valid with its existing PENDING intent
+    // (idempotent retry); a new request may only be created from SUBMITTED.
+    if (booking.status !== "SUBMITTED" && !intent) {
+      throw new Error("Cancellation cannot be requested for this booking");
     }
 
     if (!intent) {

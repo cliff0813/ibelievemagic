@@ -554,12 +554,26 @@ test("取消原因拒絕非字串且非 null 的值", () => {
 });
 
 test("取消申請拒絕已取消報名及已有待審核申請的報名", () => {
-  for (const status of ["CANCELLED", "CANCELLATION_PENDING"]) {
+  const cases = [
+    ["CANCELLED", []],
+    ["CANCELLED", [{ requestId: "request-1", status: "PENDING" }]],
+    ["CANCELLATION_PENDING", []],
+    ["CANCELLATION_PENDING", [{ requestId: "request-1", status: "APPROVING" }]],
+    [
+      "CANCELLATION_PENDING",
+      [
+        { requestId: "request-1", status: "PENDING" },
+        { requestId: "request-2", status: "PENDING" },
+      ],
+    ],
+    ["SUBMITTED", [{ requestId: "request-1", status: "APPROVING" }]],
+  ];
+  for (const [status, template] of cases) {
     const booking = seedBooking(status);
-    const requests =
-      status !== "CANCELLED"
-        ? [{ requestId: "request-1", bookingId: booking.bookingId, status: "PENDING" }]
-        : [];
+    const requests = template.map((request) => ({
+      ...request,
+      bookingId: booking.bookingId,
+    }));
     const { context, state } = createHarness({
       bookings: [booking],
       cancellationRequests: requests,
@@ -666,11 +680,15 @@ test("報名狀態已寫入但回報失敗時狀態一致，重試不建立重�
   );
   assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
   assert.equal(state.cancellationRequests[0].status, "PENDING");
-  assert.throws(
-    () => context.requestCancellation("existing-code", "0987654321", "無法參加"),
-    /cancel|pending/i,
-  );
+  const writesBefore = state.repositoryWrites;
+  const retry = context.requestCancellation("existing-code", "0987 654 321", "不同原因");
+  assert.equal(retry.success, true);
+  assert.equal(retry.status, "CANCELLATION_PENDING");
   assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.cancellationRequests[0].reason, "無法參加");
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+  assert.equal(state.repositoryWrites, writesBefore);
   assert.equal(context.listAdminCancellationRequests()[0].needsCreationRecovery, false);
 });
 
