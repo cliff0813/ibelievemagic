@@ -421,6 +421,9 @@ function normalizeAdminCoursePayload_(payload, courseId, manualRegistrationMode)
   if (!courseId) {
     throw new Error("Course ID is required");
   }
+  if (courseId.charAt(0) === "=") {
+    throw new Error("Course ID cannot begin with = because it is formula-escaped");
+  }
   ["title", "date", "startTime", "endTime"].forEach(function (field) {
     if (!isNonEmptyString_(payload[field])) {
       throw new Error("Course " + field + " is required");

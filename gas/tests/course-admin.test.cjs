@@ -290,6 +290,20 @@ test("create accepts custom IDs and retries without duplicating linked rows", ()
   assert.equal(harness.state.released, 2);
 });
 
+test("create rejects formula-prefixed course IDs before mutating sheets", () => {
+  const harness = createHarness();
+
+  assert.throws(
+    () => harness.context.createAdminCourse(course({ courseId: "=course-1" })),
+    /course.?id.*formula|formula.*course.?id/i,
+  );
+  assert.equal(harness.state.writes, 0);
+  assert.equal(harness.records("Courses").length, 0);
+  assert.equal(harness.records("CourseOutline").length, 0);
+  assert.equal(harness.records("CoursePricing").length, 0);
+  assertLockReleased(harness);
+});
+
 test("create preserves formula escaping and retries the same escaped course data", () => {
   const harness = createHarness();
   const payload = course({

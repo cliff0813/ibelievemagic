@@ -317,7 +317,9 @@ test("the approved public APIs remain callable alongside explicit admin APIs", (
     .sort();
 
   assert.deepEqual(callable, [
+    "createAdminCourse",
     "decideAdminCancellation",
+    "deleteAdminCourse",
     "doGet",
     "initializeWorkbook",
     "listAdminBookings",
@@ -329,6 +331,7 @@ test("the approved public APIs remain callable alongside explicit admin APIs", (
     "requestCancellation",
     "setCourseRegistrationMode",
     "submitBooking",
+    "updateAdminCourse",
   ]);
 });
 
