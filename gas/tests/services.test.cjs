@@ -980,10 +980,28 @@ test("非白名單、空白及無法取得登入 Email 時拒絕且不讀寫資�
       ...identity,
     });
 
-    assert.throws(
+    const invalidCourse = {
+      courseId: "course-1",
+      title: "Test course",
+      date: "2099-12-01",
+      startTime: "10:00",
+      endTime: "12:00",
+      outline: [],
+      pricing: [],
+    };
+    const protectedCalls = [
       () => context.listAdminCancellationRequests(),
-      /admin.*(denied|required|unavailable)|identity/i,
-    );
+      () => context.listAdminCourses(),
+      () => context.createAdminCourse(invalidCourse),
+      () => context.updateAdminCourse("course-1", invalidCourse),
+      () => context.deleteAdminCourse("course-1"),
+    ];
+    protectedCalls.forEach((call) => {
+      assert.throws(
+        call,
+        /admin.*(denied|required|unavailable)|identity/i,
+      );
+    });
     assert.equal(state.repositoryReads, 0);
     assert.equal(state.repositoryWrites, 0);
     assert.equal(state.mail.length, 0);

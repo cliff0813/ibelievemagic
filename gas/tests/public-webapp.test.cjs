@@ -380,6 +380,11 @@ test("admin page supports booking inspection, cancellation decisions and course 
   assert.match(html, /needsCreationRecovery/);
   assert.match(html, /pendingRecovery/);
   assert.match(html, /繼續完成/);
+  assert.match(html, /createAdminCourse/);
+  assert.match(html, /updateAdminCourse/);
+  assert.match(html, /deleteAdminCourse/);
+  assert.match(html, /courseIdGenerationError/);
+  assert.match(html, /course\.persisted/);
   assert.match(html, /\.textContent\s*=/);
   assert.doesNotMatch(html, /\.innerHTML\s*=/);
   assert.doesNotMatch(html, /deleteRow|deleteBooking|deleteRequest/i);
@@ -393,6 +398,8 @@ test("admin cancellation card keeps a manual-contact warning for FAILED notifica
       children: [],
       className: "",
       textContent: "",
+      value: "",
+      reset() {},
       appendChild(child) { this.children.push(child); return child; },
       replaceChildren() { this.children = []; },
       addEventListener() {},
@@ -403,6 +410,24 @@ test("admin cancellation card keeps a manual-contact warning for FAILED notifica
     "booking-list": element(),
     "cancellation-list": element(),
     "course-list": element(),
+    "course-form": element(),
+    "course-id": element(),
+    "course-title": element(),
+    "course-date": element(),
+    "course-start-time": element(),
+    "course-end-time": element(),
+    "course-location": element(),
+    "course-mode": element(),
+    "course-image": element(),
+    "course-description": element(),
+    "course-instructor": element(),
+    "course-instructor-bio": element(),
+    "course-outline": element(),
+    "course-pricing": element(),
+    "course-submit": element(),
+    "cancel-course-edit": element(),
+    "add-outline-item": element(),
+    "add-pricing-item": element(),
   };
   const request = {
     requestId: "r1",
@@ -434,6 +459,8 @@ test("admin cancellation card keeps a manual-contact warning for FAILED notifica
         },
       },
     },
+    crypto: { randomUUID: () => "test-course-id" },
+    window: { confirm: () => true },
     Promise,
   };
   vm.createContext(context);
