@@ -9,5 +9,8 @@
   },
   "devDependencies": {
     "@google/clasp": "^3.0.6"
+  },
+  "dependencies": {
+    "realestate-edu": "file:.."
   }
 }
