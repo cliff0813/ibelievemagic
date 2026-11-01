@@ -4,6 +4,8 @@ import { ArrowLeft, Calendar, MapPin, Monitor, Banknote, Phone, Video, Check } f
 import ShareButtons from "@/components/ShareButtons";
 import { getCourses, getCourseById, formatCourseDateLong } from "@/lib/data";
 import info from "@/data/course-info.json";
+import gasRegistration from "@/data/gas-registration.json";
+import { gasRegistrationHref } from "@/lib/gas-registration-url.mjs";
 
 export async function generateStaticParams() {
   return (await getCourses()).map((c) => ({ id: c.id }));
@@ -20,6 +22,8 @@ const h2 = "mb-4 text-xl font-bold text-slate-900";
 export default async function CourseDetailPage({ params }: { params: { id: string } }) {
   const c = await getCourseById(params.id);
   if (!c) notFound();
+
+  const registrationHref = gasRegistrationHref(gasRegistration.webAppUrl, c.id);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-10">
@@ -79,9 +83,17 @@ export default async function CourseDetailPage({ params }: { params: { id: strin
         <ol className="list-decimal space-y-2 pl-5 text-slate-700">
           {info.registrationSteps.map((s) => <li key={s}>{s}</li>)}
         </ol>
+        {registrationHref && (
+          <a href={registrationHref} target="_blank" rel="noopener noreferrer"
+            className="mt-5 inline-block rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+            線上報名
+          </a>
+        )}
         <a href={info.contact.lineUrl} target="_blank" rel="noopener noreferrer"
-          className="mt-5 inline-block rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-          透過官方 LINE 報名 / 詢問
+          className={registrationHref
+            ? "mt-3 inline-block rounded-full border border-brand-600 px-6 py-2.5 text-sm font-semibold text-brand-700 hover:bg-brand-50"
+            : "mt-5 inline-block rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"}>
+          {registrationHref ? "透過官方 LINE 詢問" : "透過官方 LINE 報名 / 詢問"}
         </a>
         <p className="mt-3 text-xs text-slate-500">完整規則請見 <Link href="/notice" className="text-brand-600 underline">報名須知</Link>。</p>
       </section>
