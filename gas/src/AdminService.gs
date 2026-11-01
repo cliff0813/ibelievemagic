@@ -289,11 +289,12 @@ function createAdminCourse(payload) {
         "A different course already exists with this course ID and linked content",
       );
     }
+    if (existing.length === 1) {
+      return { courseId: courseId };
+    }
 
     replaceAdminCourseContent_(courseId, normalized);
-    if (existing.length === 0) {
-      appendSheetRecords_("Courses", [normalized.course]);
-    }
+    appendSheetRecords_("Courses", [normalized.course]);
     return { courseId: courseId };
   } catch (error) {
     throw adminCourseOperationError_("create", courseId, error);
@@ -335,16 +336,24 @@ function updateAdminCourse(courseId, payload) {
       normalizedId,
       current.manualRegistrationMode,
     );
-    getBookings_().forEach(function (booking) {
-      if (
-        booking.courseId === normalizedId &&
-        booking.courseDate !== normalized.course.date
-      ) {
-        updateBooking_(booking.bookingId, {
-          courseDate: normalized.course.date,
-        });
-      }
-    });
+    if (current.date !== normalized.course.date) {
+      getBookings_().forEach(function (booking) {
+        if (
+          booking.courseId === normalizedId &&
+          booking.courseDate !== normalized.course.date
+        ) {
+          updateBooking_(booking.bookingId, {
+            courseDate: normalized.course.date,
+          });
+        }
+      });
+      updateSheetRecordsByValue_(
+        "Participants",
+        "courseId",
+        normalizedId,
+        { courseDate: normalized.course.date },
+      );
+    }
     replaceAdminCourseContent_(normalizedId, normalized);
     var courseUpdates = {};
     ADMIN_COURSE_EDITABLE_FIELDS_.forEach(function (field) {
@@ -395,7 +404,7 @@ function deleteAdminCourse(courseId) {
     if (
       !course &&
       FALLBACK_COURSES.some(function (item) {
-        return item.courseId === normalizedId;
+        return fallbackCourseId_(item) === normalizedId;
       })
     ) {
       throw new Error("Course not found");
@@ -662,12 +671,12 @@ function isValidAdminCourseIpv6_(hostname) {
     return false;
   }
   var groups;
+  var leftGroups = [];
   if (compressed) {
     var left = hostname.slice(0, compressionIndex);
     var right = hostname.slice(compressionIndex + 2);
-    groups = (left ? left.split(":") : []).concat(
-      right ? right.split(":") : [],
-    );
+    leftGroups = left ? left.split(":") : [];
+    groups = leftGroups.concat(right ? right.split(":") : []);
   } else {
     groups = hostname.split(":");
   }
@@ -679,6 +688,7 @@ function isValidAdminCourseIpv6_(hostname) {
     if (groups[index].indexOf(".") >= 0) {
       if (
         index !== groups.length - 1 ||
+        (compressed && index < leftGroups.length) ||
         !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(groups[index]) ||
         groups[index].split(".").some(function (part) {
           return Number(part) > 255;

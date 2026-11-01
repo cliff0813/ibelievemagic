@@ -539,6 +539,38 @@ function deleteSheetRecordsByValue_(sheetName, key, keyValue) {
 }
 
 /**
+ * Updates selected fields in every matching row. Not self-locking: callers must
+ * hold the script lock across the read/write sequence.
+ */
+function updateSheetRecordsByValue_(sheetName, key, keyValue, updates) {
+  if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+    throw new Error("Updates must be an object");
+  }
+  if (!Object.prototype.hasOwnProperty.call(SHEET_SCHEMAS_, sheetName)) {
+    throw new Error("Unknown sheet schema: " + sheetName);
+  }
+
+  var headers = SHEET_SCHEMAS_[sheetName];
+  var fields = Object.keys(updates);
+  var columns = fields.map(function (field) {
+    var column = headers.indexOf(field);
+    if (column < 0) {
+      throw new Error("Invalid field " + field + " for sheet " + sheetName);
+    }
+    return column;
+  });
+  var matches = getMatchingSheetRowNumbers_(sheetName, key, keyValue);
+  matches.rowNumbers.forEach(function (rowNumber) {
+    columns.forEach(function (column, index) {
+      matches.sheet
+        .getRange(rowNumber, column + 1, 1, 1)
+        .setValues([[escapeSheetValue_(updates[fields[index]])]]);
+    });
+  });
+  return matches.rowNumbers.length;
+}
+
+/**
  * Appends the new records, then deletes the previously matching rows. Not
  * self-locking: callers must hold the script lock across the full
  * read/append/delete sequence because row numbers are snapshotted.

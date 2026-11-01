@@ -770,6 +770,59 @@ test("replaceSheetRecordsByValue_ replaces only matching course rows and appends
   ]);
 });
 
+test("updateSheetRecordsByValue_ updates all matching rows and a retry completes partial updates", () => {
+  const sheet = createSheet("Participants", [
+    expectedHeaders.Participants,
+    ["b1", "course-1", "2026-12-01", "First", "0911111111", "first@example.com", ""],
+    ["b1", "course-1", "2026-12-01", "Second", "0922222222", "second@example.com", ""],
+    ["b2", "course-2", "2026-12-01", "Other", "0933333333", "other@example.com", ""],
+  ]);
+  const originalGetRange = sheet.getRange.bind(sheet);
+  let shouldFail = true;
+  sheet.getRange = (row, column, rowCount, columnCount) => {
+    const range = originalGetRange(row, column, rowCount, columnCount);
+    const setValues = range.setValues;
+    range.setValues = (values) => {
+      if (shouldFail && row === 3 && column === 3) {
+        shouldFail = false;
+        throw new Error("Injected participant update failure");
+      }
+      setValues(values);
+    };
+    return range;
+  };
+  const { context } = loadRepository({ sheets: { Participants: sheet } });
+
+  assert.throws(
+    () =>
+      context.updateSheetRecordsByValue_(
+        "Participants",
+        "courseId",
+        "course-1",
+        { courseDate: "2027-01-03" },
+      ),
+    /Injected participant update failure/,
+  );
+  assert.equal(sheet.rows[1][2], "2027-01-03");
+  assert.equal(sheet.rows[2][2], "2026-12-01");
+
+  assert.equal(
+    context.updateSheetRecordsByValue_(
+      "Participants",
+      "courseId",
+      "course-1",
+      { courseDate: "2027-01-03" },
+    ),
+    2,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(sheet.rows)), [
+    expectedHeaders.Participants,
+    ["b1", "course-1", "2027-01-03", "First", "0911111111", "first@example.com", ""],
+    ["b1", "course-1", "2027-01-03", "Second", "0922222222", "second@example.com", ""],
+    ["b2", "course-2", "2026-12-01", "Other", "0933333333", "other@example.com", ""],
+  ]);
+});
+
 test("deleteSheetRecordsByValue_ deletes every exact match and repeated deletes preserve other IDs", () => {
   const { context, sheets } = loadRepository({
     sheets: {

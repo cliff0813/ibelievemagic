@@ -11,6 +11,7 @@ function createHarness({
   outlines = [],
   pricing = [],
   bookings = [],
+  participants = [],
   auditLogs = [],
   authorized = true,
   failure = null,
@@ -81,7 +82,7 @@ function createHarness({
     CoursePricing: pricing,
     Bookings: bookings,
     AuditLog: auditLogs,
-    Participants: [],
+    Participants: participants,
     CancellationRequests: [],
   })) {
     const sheet = {
@@ -390,12 +391,44 @@ test("create retry rejects different linked content for an existing course witho
   }
 });
 
+test("create retry does not rewrite already matching course data", () => {
+  const payload = course();
+  const harness = createHarness({
+    courses: [{ ...payload, manualRegistrationMode: "AUTO" }],
+    outlines: payload.outline.map((item, index) => ({
+      courseId: payload.courseId,
+      sortOrder: index + 1,
+      item,
+    })),
+    pricing: payload.pricing.map((item, index) => ({
+      courseId: payload.courseId,
+      sortOrder: index + 1,
+      ...item,
+    })),
+    failure: { write: 2, when: "before" },
+  });
+
+  assert.equal(
+    harness.context.createAdminCourse(payload).courseId,
+    payload.courseId,
+  );
+  assert.equal(harness.state.writes, 0);
+  assert.equal(harness.records("CourseOutline").length, 2);
+  assert.equal(harness.records("CoursePricing").length, 2);
+});
+
 const fallbackCourse = () => {
   const { outline, pricing, ...fields } = course({
     courseId: "fallback-1",
     title: "Fallback course",
   });
   return { ...fields, manualRegistrationMode: "AUTO" };
+};
+
+const persistedFallbackCourse = () => {
+  const fallback = fallbackCourse();
+  const { courseId, ...fields } = fallback;
+  return { ...fields, id: courseId };
 };
 
 test("fallback-only courses are not persisted duplicates and can be created", () => {
@@ -441,8 +474,9 @@ test("update of a fallback-only course errors before any repository write", () =
 
 test("delete of a fallback-only course errors without deleting linked rows", () => {
   const harness = createHarness({
-    fallbackCourses: [fallbackCourse()],
+    fallbackCourses: [persistedFallbackCourse()],
     outlines: [{ courseId: "fallback-1", sortOrder: 1, item: "Keep" }],
+    pricing: [{ courseId: "fallback-1", sortOrder: 1, label: "Keep", price: 10 }],
   });
 
   assert.throws(
@@ -451,6 +485,7 @@ test("delete of a fallback-only course errors without deleting linked rows", () 
   );
   assert.equal(harness.state.writes, 0);
   assert.equal(harness.records("CourseOutline").length, 1);
+  assert.equal(harness.records("CoursePricing").length, 1);
   assertLockReleased(harness);
 });
 
@@ -486,6 +521,7 @@ test("create validates required values, calendar date, time, URL, outline, and p
     [{ image: "https://example.com/path with space" }, /image|url/i],
     [{ image: "https://[1:2::3:]/image.png" }, /image|url/i],
     [{ image: "https://[1::2::3]/image.png" }, /image|url/i],
+    [{ image: "https://[1.2.3.4::]/image.png" }, /image|url/i],
     [{ outline: ["   "] }, /outline/i],
     [{ outline: [1] }, /outline/i],
     [{ pricing: [{ label: " ", price: 1 }] }, /pricing|label/i],
@@ -639,7 +675,7 @@ test("update preserves ID and registration mode and replaces only selected cours
   assert.equal(harness.state.released, 2);
 });
 
-test("update moves every matching booking date across statuses without changing other fields", () => {
+test("update moves matching booking and participant dates across statuses", () => {
   const harness = createHarness({
     courses: [course(), course({ courseId: "other", title: "Other" })],
     bookings: [
@@ -647,10 +683,19 @@ test("update moves every matching booking date across statuses without changing 
       { bookingId: "two", courseId: "course-1", courseDate: "2026-12-01", status: "CANCELLED", leaderName: "Keep too" },
       { bookingId: "three", courseId: "other", courseDate: "2026-12-01", status: "SUBMITTED" },
     ],
+    participants: [
+      { bookingId: "one", courseId: "course-1", courseDate: "2026-12-01", name: "One", email: "one@example.com" },
+      { bookingId: "two", courseId: "course-1", courseDate: "2026-12-01", name: "Two", email: "two@example.com" },
+      { bookingId: "three", courseId: "other", courseDate: "2026-12-01", name: "Other", email: "other@example.com" },
+    ],
+    failure: { write: 4, when: "before" },
   });
   const payload = course({ date: "2027-01-03" });
 
-  harness.context.updateAdminCourse("course-1", payload);
+  assert.throws(
+    () => harness.context.updateAdminCourse("course-1", payload),
+    /update.*course-1/i,
+  );
   harness.context.updateAdminCourse("course-1", payload);
 
   assert.deepEqual(
@@ -664,6 +709,17 @@ test("update moves every matching booking date across statuses without changing 
       { bookingId: "one", courseDate: "2027-01-03", status: "SUBMITTED", leaderName: "Keep" },
       { bookingId: "two", courseDate: "2027-01-03", status: "CANCELLED", leaderName: "Keep too" },
       { bookingId: "three", courseDate: "2026-12-01", status: "SUBMITTED", leaderName: "" },
+    ],
+  );
+  assert.deepEqual(
+    harness.records("Participants").map(({ bookingId, courseDate }) => ({
+      bookingId,
+      courseDate,
+    })),
+    [
+      { bookingId: "one", courseDate: "2027-01-03" },
+      { bookingId: "two", courseDate: "2027-01-03" },
+      { bookingId: "three", courseDate: "2026-12-01" },
     ],
   );
   assert.equal(harness.state.acquired, 2);
