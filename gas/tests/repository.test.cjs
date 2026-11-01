@@ -84,6 +84,9 @@ function createSheet(name, rows = []) {
         },
       };
     },
+    deleteRow(row) {
+      this.rows.splice(row - 1, 1);
+    },
   };
 }
 
@@ -460,6 +463,43 @@ test("course-mode and audit repository helpers operate only on their declared re
       name.endsWith("_"),
     ),
   );
+});
+
+test("audit compensation deletes only the attempted event and is idempotent", () => {
+  const { context, sheets } = loadRepository({
+    sheets: {
+      AuditLog: createSheet("AuditLog", [
+        expectedHeaders.AuditLog,
+        [
+          "event-1",
+          "admin@example.com",
+          "CANCELLATION_APPROVED",
+          "request-1",
+          "time-1",
+        ],
+        [
+          "event-2",
+          "admin@example.com",
+          "COURSE_REGISTRATION_CLOSED",
+          "course-1",
+          "time-2",
+        ],
+      ]),
+    },
+  });
+
+  assert.equal(context.deleteAuditLog_("event-1"), true);
+  assert.equal(context.deleteAuditLog_("event-1"), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(sheets.AuditLog.rows)), [
+    expectedHeaders.AuditLog,
+    [
+      "event-2",
+      "admin@example.com",
+      "COURSE_REGISTRATION_CLOSED",
+      "course-1",
+      "time-2",
+    ],
+  ]);
 });
 
 test("initialization leaves exact existing headers and rows intact", () => {

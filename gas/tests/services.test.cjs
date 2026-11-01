@@ -26,8 +26,13 @@ function createHarness({
   activeUserUnavailable = false,
   adminAllowlist = " Admin@Example.com ",
   failNotificationStatusWrite = false,
+  failCancellationDecisionUpdate = false,
+  failAuditAppendActions = [],
+  failAdminBookingRollback = false,
   now = 0,
 } = {}) {
+  let shouldFailCancellationDecisionUpdate = failCancellationDecisionUpdate;
+  const auditActionsToFail = [...failAuditAppendActions];
   const state = {
     bookings: structuredClone(bookings),
     participants: structuredClone(participants),
@@ -83,6 +88,12 @@ function createHarness({
     updateBooking_: (bookingId, updates) => {
       state.repositoryWrites++;
       if (
+        failAdminBookingRollback &&
+        updates.status === "CANCELLATION_PENDING"
+      ) {
+        throw new Error("Booking rollback failed");
+      }
+      if (
         failConfirmationStatusWrite &&
         Object.hasOwn(updates, "confirmationEmailStatus")
       ) {
@@ -112,6 +123,13 @@ function createHarness({
       );
       if (!request) throw new Error("Cancellation request not found");
       Object.assign(request, structuredClone(updates));
+      if (
+        shouldFailCancellationDecisionUpdate &&
+        Object.hasOwn(updates, "reviewedBy")
+      ) {
+        shouldFailCancellationDecisionUpdate = false;
+        throw new Error("Cancellation decision request update failed");
+      }
     },
     insertCancellationRequest_: (request) => {
       state.repositoryWrites++;
@@ -129,6 +147,18 @@ function createHarness({
     insertAuditLog_: (entry) => {
       state.repositoryWrites++;
       state.auditLogs.push(structuredClone(entry));
+      const failureIndex = auditActionsToFail.indexOf(entry.action);
+      if (failureIndex >= 0) {
+        auditActionsToFail.splice(failureIndex, 1);
+        throw new Error("Audit append failed");
+      }
+    },
+    deleteAuditLog_: (eventId) => {
+      state.repositoryWrites++;
+      const index = state.auditLogs.findIndex(
+        (entry) => entry.eventId === eventId,
+      );
+      if (index >= 0) state.auditLogs.splice(index, 1);
     },
     Session: {
       getActiveUser: () => ({
@@ -812,6 +842,90 @@ test("非 PENDING 取消申請不能被決定且不改變報名或留下稽核",
   assert.equal(state.mail.length, 0);
 });
 
+test("取消申請更新即使寫入後回報錯誤也回滾，且可安全重試", () => {
+  const { booking, request } = seedCancellation();
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [request],
+    failCancellationDecisionUpdate: true,
+  });
+
+  assert.throws(
+    () => context.decideAdminCancellation(request.requestId, "APPROVED"),
+    /cancellation decision request update failed/i,
+  );
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.cancellationRequests[0].reviewedBy, "");
+  assert.equal(state.auditLogs.length, 0);
+  assert.equal(state.mail.length, 0);
+  assert.equal(state.lockAcquired, 1);
+  assert.equal(state.lockReleased, 1);
+
+  const retry = context.decideAdminCancellation(request.requestId, "APPROVED");
+
+  assert.equal(retry.success, true);
+  assert.equal(state.bookings[0].status, "CANCELLED");
+  assert.equal(state.cancellationRequests[0].status, "APPROVED");
+  assert.equal(state.auditLogs.length, 1);
+  assert.equal(state.lockAcquired, 2);
+  assert.equal(state.lockReleased, 2);
+});
+
+test("取消稽核寫入失敗會回滾所有提交並允許重試", () => {
+  const { booking, request } = seedCancellation();
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [request],
+    failAuditAppendActions: ["CANCELLATION_APPROVED"],
+  });
+
+  assert.throws(
+    () => context.decideAdminCancellation(request.requestId, "APPROVED"),
+    /audit append failed/i,
+  );
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.cancellationRequests[0].reviewedBy, "");
+  assert.equal(state.auditLogs.length, 0);
+  assert.equal(state.mail.length, 0);
+  assert.equal(state.lockAcquired, 1);
+  assert.equal(state.lockReleased, 1);
+
+  const retry = context.decideAdminCancellation(request.requestId, "APPROVED");
+
+  assert.equal(retry.success, true);
+  assert.equal(state.bookings[0].status, "CANCELLED");
+  assert.equal(state.cancellationRequests[0].status, "APPROVED");
+  assert.equal(state.auditLogs.length, 1);
+  assert.equal(state.lockAcquired, 2);
+  assert.equal(state.lockReleased, 2);
+});
+
+test("取消回滾未完成時明確回報部分提交錯誤", () => {
+  const { booking, request } = seedCancellation();
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [request],
+    failCancellationDecisionUpdate: true,
+    failAdminBookingRollback: true,
+  });
+
+  assert.throws(
+    () => context.decideAdminCancellation(request.requestId, "APPROVED"),
+    (error) =>
+      error.name === "PartialCommitError" &&
+      error.code === "PARTIAL_COMMIT" &&
+      /booking rollback failed/i.test(error.message),
+  );
+  assert.equal(state.bookings[0].status, "CANCELLED");
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.auditLogs.length, 0);
+  assert.equal(state.mail.length, 0);
+  assert.equal(state.lockAcquired, 1);
+  assert.equal(state.lockReleased, 1);
+});
+
 test("管理員可立即關閉並稽核課程；截止後重開明確失敗且不修改資料", () => {
   const { context, state } = createHarness();
 
@@ -851,6 +965,30 @@ test("管理員可立即關閉並稽核課程；截止後重開明確失敗且�
     "CLOSED",
   );
   assert.equal(pastCourseHarness.state.auditLogs.length, 0);
+});
+
+test("課程稽核寫入失敗會回滾模式且可安全重試", () => {
+  const { context, state } = createHarness({
+    failAuditAppendActions: ["COURSE_REGISTRATION_CLOSED"],
+  });
+
+  assert.throws(
+    () => context.setCourseRegistrationMode("course-1", "CLOSED"),
+    /audit append failed/i,
+  );
+  assert.equal(state.course.manualRegistrationMode, "AUTO");
+  assert.equal(state.auditLogs.length, 0);
+  assert.equal(state.lockAcquired, 1);
+  assert.equal(state.lockReleased, 1);
+
+  const retry = context.setCourseRegistrationMode("course-1", "CLOSED");
+
+  assert.equal(retry.manualRegistrationMode, "CLOSED");
+  assert.equal(state.course.manualRegistrationMode, "CLOSED");
+  assert.equal(state.auditLogs.length, 1);
+  assert.equal(state.auditLogs[0].action, "COURSE_REGISTRATION_CLOSED");
+  assert.equal(state.lockAcquired, 2);
+  assert.equal(state.lockReleased, 2);
 });
 
 test("通知狀態無法持久化時回報錯誤而不假稱寄送成功", () => {

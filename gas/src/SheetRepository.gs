@@ -196,6 +196,30 @@ function insertAuditLog_(entry) {
   appendSheetRecords_("AuditLog", [entry]);
 }
 
+function deleteAuditLog_(eventId) {
+  var sheet = getRegistrationSpreadsheet_().getSheetByName("AuditLog");
+  if (!sheet) {
+    throw new Error("Sheet AuditLog is not initialized");
+  }
+  var headers = SHEET_SCHEMAS_.AuditLog;
+  var eventIdColumn = headers.indexOf("eventId");
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return false;
+  }
+
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  var rowIndex = values.findIndex(function (row) {
+    return row[eventIdColumn] === eventId;
+  });
+  if (rowIndex < 0) {
+    return false;
+  }
+
+  sheet.deleteRow(rowIndex + 2);
+  return true;
+}
+
 function getSheetRecords_(sheetName) {
   var sheet = getRegistrationSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) {

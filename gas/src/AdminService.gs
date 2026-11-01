@@ -174,7 +174,10 @@ function decideAdminCancellation(requestId, decision) {
   var lock = LockService.getScriptLock();
   var request;
   var booking;
+  var originalBookingStatus;
+  var originalRequest;
   var reviewedAt = new Date().toISOString();
+  var rollbackActions = [];
   lock.waitLock(30000);
   try {
     request = getCancellationRequests_().filter(function (item) {
@@ -190,9 +193,33 @@ function decideAdminCancellation(requestId, decision) {
     if (!booking || booking.status !== "CANCELLATION_PENDING") {
       throw new Error("Booking is not awaiting cancellation review");
     }
+    originalBookingStatus = booking.status;
+    originalRequest = {
+      status: request.status,
+      reviewedBy: request.reviewedBy,
+      reviewedAt: request.reviewedAt,
+      notificationEmailStatus: request.notificationEmailStatus,
+    };
 
+    rollbackActions.push({
+      description: "Booking " + booking.bookingId,
+      restore: function () {
+        updateBooking_(booking.bookingId, { status: originalBookingStatus });
+      },
+    });
     updateBooking_(booking.bookingId, {
       status: decision === "APPROVED" ? "CANCELLED" : "SUBMITTED",
+    });
+    rollbackActions.push({
+      description: "Cancellation request " + request.requestId,
+      restore: function () {
+        updateCancellationRequest_(request.requestId, {
+          status: originalRequest.status,
+          reviewedBy: originalRequest.reviewedBy,
+          reviewedAt: originalRequest.reviewedAt,
+          notificationEmailStatus: originalRequest.notificationEmailStatus,
+        });
+      },
     });
     updateCancellationRequest_(request.requestId, {
       status: decision,
@@ -200,13 +227,22 @@ function decideAdminCancellation(requestId, decision) {
       reviewedAt: reviewedAt,
       notificationEmailStatus: "PENDING",
     });
-    insertAuditLog_({
+    var auditEntry = {
       eventId: Utilities.getUuid(),
       actorEmail: actorEmail,
       action: "CANCELLATION_" + decision,
       recordId: request.requestId,
       createdAt: reviewedAt,
+    };
+    rollbackActions.push({
+      description: "Audit event " + auditEntry.eventId,
+      restore: function () {
+        deleteAuditLog_(auditEntry.eventId);
+      },
     });
+    insertAuditLog_(auditEntry);
+  } catch (error) {
+    rollbackAdminWrites_("Cancellation decision", error, rollbackActions);
   } finally {
     lock.releaseLock();
   }
@@ -258,7 +294,9 @@ function setCourseRegistrationMode(courseId, mode) {
 
   var lock = LockService.getScriptLock();
   var course;
+  var originalCourseMode;
   var changedAt = new Date().toISOString();
+  var rollbackActions = [];
   lock.waitLock(30000);
   try {
     course = getCourses_().filter(function (item) {
@@ -275,15 +313,37 @@ function setCourseRegistrationMode(courseId, mode) {
         "Cannot manually open registration after the automatic deadline",
       );
     }
+    originalCourseMode = course.manualRegistrationMode;
 
+    rollbackActions.push({
+      description: "Course " + course.courseId,
+      restore: function () {
+        updateCourse_(course.courseId, {
+          manualRegistrationMode: originalCourseMode,
+        });
+      },
+    });
     updateCourse_(course.courseId, { manualRegistrationMode: mode });
-    insertAuditLog_({
+    var auditEntry = {
       eventId: Utilities.getUuid(),
       actorEmail: actorEmail,
       action: "COURSE_REGISTRATION_" + mode,
       recordId: course.courseId,
       createdAt: changedAt,
+    };
+    rollbackActions.push({
+      description: "Audit event " + auditEntry.eventId,
+      restore: function () {
+        deleteAuditLog_(auditEntry.eventId);
+      },
     });
+    insertAuditLog_(auditEntry);
+  } catch (error) {
+    rollbackAdminWrites_(
+      "Course registration mode change",
+      error,
+      rollbackActions,
+    );
   } finally {
     lock.releaseLock();
   }
@@ -292,4 +352,49 @@ function setCourseRegistrationMode(courseId, mode) {
     courseId: course.courseId,
     manualRegistrationMode: mode,
   };
+}
+
+/**
+ * Compensates attempted writes in reverse order when a multi-sheet admin
+ * operation fails. Restore actions are registered before each write because a
+ * Sheets service error can occur after the write reached the spreadsheet.
+ *
+ * @param {string} operationName
+ * @param {Error} originalError
+ * @param {Array<Object>} rollbackActions
+ */
+function rollbackAdminWrites_(operationName, originalError, rollbackActions) {
+  var rollbackFailures = [];
+  for (var index = rollbackActions.length - 1; index >= 0; index--) {
+    try {
+      rollbackActions[index].restore();
+    } catch (rollbackError) {
+      rollbackFailures.push(
+        rollbackActions[index].description +
+          ": " +
+          (rollbackError && rollbackError.message
+            ? rollbackError.message
+            : String(rollbackError)),
+      );
+    }
+  }
+
+  if (rollbackFailures.length > 0) {
+    var partialCommitError = new Error(
+      operationName +
+        " failed and rollback was incomplete; manual reconciliation is required. " +
+        "Rollback failures: " +
+        rollbackFailures.join("; ") +
+        ". Original error: " +
+        (originalError && originalError.message
+          ? originalError.message
+          : String(originalError)),
+    );
+    partialCommitError.name = "PartialCommitError";
+    partialCommitError.code = "PARTIAL_COMMIT";
+    partialCommitError.rollbackFailures = rollbackFailures;
+    throw partialCommitError;
+  }
+
+  throw originalError;
 }
