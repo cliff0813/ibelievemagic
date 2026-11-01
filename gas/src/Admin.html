@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <?!= include_('Styles'); ?>
+    <style>
+      .admin-list { display: grid; gap: 0.75rem; }
+      .admin-card { padding: 1rem; border: 1px solid #dce5e8; border-radius: 0.75rem; }
+      .admin-card p { margin: 0.35rem 0; overflow-wrap: anywhere; }
+      .admin-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.75rem; }
+      .admin-status { min-height: 1.5em; }
+      .admin-status[aria-live] { overflow-wrap: anywhere; }
+      .participant-details { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+    </style>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="page-header">
+        <p class="eyebrow">限管理員使用</p>
+        <h1>課程報名管理</h1>
+        <p class="intro">查看報名、審核取消申請及管理報名開關。操作紀錄會保留，不提供刪除功能。</p>
+        <p id="admin-status" class="status admin-status" role="status" aria-live="polite"></p>
+      </header>
+
+      <section class="panel" aria-labelledby="course-heading">
+        <h2 id="course-heading">課程報名開關</h2>
+        <div id="course-list" class="admin-list"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="cancellation-heading">
+        <h2 id="cancellation-heading">待審取消與通知追蹤</h2>
+        <div id="cancellation-list" class="admin-list"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="booking-heading">
+        <h2 id="booking-heading">報名紀錄</h2>
+        <div id="booking-list" class="admin-list"></div>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var statusElement = document.getElementById("admin-status");
+        var bookingList = document.getElementById("booking-list");
+        var cancellationList = document.getElementById("cancellation-list");
+        var courseList = document.getElementById("course-list");
+
+        function callServer(method) {
+          var args = Array.prototype.slice.call(arguments, 1);
+          return new Promise(function (resolve, reject) {
+            var runner = google.script.run
+              .withSuccessHandler(resolve)
+              .withFailureHandler(reject);
+            runner[method].apply(runner, args);
+          });
+        }
+
+        function setStatus(message, failed) {
+          statusElement.textContent = message || "";
+          statusElement.className =
+            "status admin-status" + (failed ? " status-error" : " status-success");
+        }
+
+        function appendText(parent, tagName, text, className) {
+          var element = document.createElement(tagName);
+          element.textContent = text == null ? "" : String(text);
+          if (className) element.className = className;
+          parent.appendChild(element);
+          return element;
+        }
+
+        function makeButton(label, className, handler) {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "button " + className;
+          button.textContent = label;
+          button.addEventListener("click", handler);
+          return button;
+        }
+
+        function makeCard(parent, title) {
+          var card = document.createElement("article");
+          card.className = "admin-card";
+          appendText(card, "h3", title);
+          parent.appendChild(card);
+          return card;
+        }
+
+        function renderBookings(bookings) {
+          bookingList.replaceChildren();
+          if (!bookings.length) {
+            appendText(bookingList, "p", "目前沒有報名紀錄。");
+            return;
+          }
+          bookings.forEach(function (booking) {
+            var card = makeCard(
+              bookingList,
+              (booking.courseTitle || booking.courseId) + " · " + booking.courseDate,
+            );
+            appendText(card, "p", "狀態：" + booking.status);
+            appendText(card, "p", "報名編號：" + booking.bookingId);
+            appendText(card, "p", "團主：" + booking.leaderName);
+            appendText(card, "p", "電話：" + booking.leaderPhone);
+            appendText(card, "p", "Email：" + booking.leaderEmail);
+            appendText(card, "p", "建立時間：" + booking.createdAt);
+            appendText(
+              card,
+              "p",
+              "確認信狀態：" + (booking.confirmationEmailStatus || "未記錄"),
+            );
+            var participants = document.createElement("ul");
+            participants.className = "participant-details";
+            (booking.participants || []).forEach(function (participant) {
+              appendText(
+                participants,
+                "li",
+                [participant.name, participant.phone, participant.email, participant.lineName]
+                  .filter(Boolean)
+                  .join(" · "),
+              );
+            });
+            card.appendChild(participants);
+          });
+        }
+
+        function renderCancellations(requests) {
+          cancellationList.replaceChildren();
+          if (!requests.length) {
+            appendText(cancellationList, "p", "目前沒有待審或通知待追蹤的申請。");
+            return;
+          }
+          requests.forEach(function (request) {
+            var card = makeCard(
+              cancellationList,
+              (request.courseTitle || "課程") + " · " + request.bookingId,
+            );
+            appendText(card, "p", "取消申請：" + request.status);
+            appendText(card, "p", "原因：" + (request.reason || "未提供"));
+            appendText(card, "p", "團主：" + request.leaderName);
+            appendText(card, "p", "通知 Email：" + request.leaderEmail);
+            appendText(
+              card,
+              "p",
+              "通知狀態：" + (request.notificationEmailStatus || "未記錄"),
+            );
+            if (request.status === "PENDING") {
+              var actions = document.createElement("div");
+              actions.className = "admin-actions";
+              actions.appendChild(
+                makeButton("核准取消", "button-primary", function () {
+                  decide(request.requestId, "APPROVED");
+                }),
+              );
+              actions.appendChild(
+                makeButton("拒絕取消", "button-danger", function () {
+                  decide(request.requestId, "REJECTED");
+                }),
+              );
+              card.appendChild(actions);
+            }
+          });
+        }
+
+        function renderCourses(courses) {
+          courseList.replaceChildren();
+          if (!courses.length) {
+            appendText(courseList, "p", "目前沒有課程資料。");
+            return;
+          }
+          courses.forEach(function (course) {
+            var card = makeCard(courseList, course.title + " · " + course.date);
+            appendText(
+              card,
+              "p",
+              "手動模式：" + (course.manualRegistrationMode || "AUTO"),
+            );
+            var actions = document.createElement("div");
+            actions.className = "admin-actions";
+            actions.appendChild(
+              makeButton("立即關閉", "button-danger", function () {
+                setCourseMode(course.courseId, "CLOSED");
+              }),
+            );
+            actions.appendChild(
+              makeButton("手動開放", "button-secondary", function () {
+                setCourseMode(course.courseId, "OPEN");
+              }),
+            );
+            card.appendChild(actions);
+          });
+        }
+
+        function refresh() {
+          return Promise.all([
+            callServer("listAdminBookings"),
+            callServer("listAdminCancellationRequests"),
+            callServer("listAdminCourses"),
+          ]).then(function (results) {
+            renderBookings(results[0]);
+            renderCancellations(results[1]);
+            renderCourses(results[2]);
+            setStatus("資料已更新。", false);
+          }).catch(function (error) {
+            setStatus("無法載入管理資料：" + (error.message || error), true);
+          });
+        }
+
+        function decide(requestId, decision) {
+          setStatus("正在儲存取消審核…", false);
+          callServer("decideAdminCancellation", requestId, decision)
+            .then(function (result) {
+              setStatus(result.message, result.notificationEmailStatus === "FAILED");
+              return refresh();
+            })
+            .catch(function (error) {
+              setStatus("取消審核失敗：" + (error.message || error), true);
+            });
+        }
+
+        function setCourseMode(courseId, mode) {
+          setStatus("正在更新課程報名狀態…", false);
+          callServer("setCourseRegistrationMode", courseId, mode)
+            .then(function () {
+              setStatus("課程報名狀態已更新。", false);
+              return refresh();
+            })
+            .catch(function (error) {
+              setStatus("課程狀態未更新：" + (error.message || error), true);
+            });
+        }
+
+        refresh();
+      })();
+    </script>
+  </body>
+</html>

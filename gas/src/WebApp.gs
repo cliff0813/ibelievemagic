@@ -5,8 +5,18 @@
  * @return {GoogleAppsScript.HTML.HtmlOutput}
  */
 function doGet(e) {
-  var template = HtmlService.createTemplateFromFile("Public");
   var parameters = e && e.parameter ? e.parameter : {};
+  if (parameters.page === "admin") {
+    // Configure the public deployment to execute as owner. Deploy this management
+    // route separately with authenticated access and "Execute as: user accessing
+    // the web app"; each administrator also needs Sheet access and authorization.
+    requireAdmin_();
+    return HtmlService.createTemplateFromFile("Admin")
+      .evaluate()
+      .setTitle("課程報名管理");
+  }
+
+  var template = HtmlService.createTemplateFromFile("Public");
   template.initialCourseId =
     typeof parameters.courseId === "string" ? parameters.courseId : "";
   return template.evaluate().setTitle("課程報名與查詢");

@@ -180,8 +180,20 @@ function updateCancellationRequest_(requestId, updates) {
   );
 }
 
+function updateCourse_(courseId, updates) {
+  updateSheetRecord_("Courses", "courseId", courseId, updates);
+}
+
 function insertCancellationRequest_(request) {
   appendSheetRecords_("CancellationRequests", [request]);
+}
+
+function getAuditLogs_() {
+  return getSheetRecords_("AuditLog");
+}
+
+function insertAuditLog_(entry) {
+  appendSheetRecords_("AuditLog", [entry]);
 }
 
 function getSheetRecords_(sheetName) {

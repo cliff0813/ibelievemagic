@@ -9,6 +9,11 @@ const sourceDirectory = path.join(__dirname, "..", "src");
 // Live HtmlService/google.script.run acceptance remains pending; GAS deployment credentials are unavailable here.
 function loadWebApp(courses) {
   const context = {
+    adminChecks: 0,
+    requireAdmin_: () => {
+      context.adminChecks++;
+      return "admin@example.com";
+    },
     getCourses_: () => structuredClone(courses),
     getCourseAvailability_: (date, now, manualMode) =>
       date > "2026-11-01" && manualMode !== "CLOSED" ? "OPEN" : "CLOSED",
@@ -91,7 +96,17 @@ test("public doGet defaults to the page and safely forwards course preselection"
   assert.equal(page.title, "課程報名與查詢");
 });
 
-test("only the approved public APIs and doGet are globally callable", () => {
+test("admin route checks server-side authorization before rendering", () => {
+  const context = loadWebApp([]);
+
+  const page = context.doGet({ parameter: { page: "admin" } });
+
+  assert.equal(context.adminChecks, 1);
+  assert.equal(context.lastTemplateName, "Admin");
+  assert.equal(page.title, "課程報名管理");
+});
+
+test("the approved public APIs remain callable alongside explicit admin APIs", () => {
   const context = {};
   vm.createContext(context);
   for (const filename of fs
@@ -107,10 +122,36 @@ test("only the approved public APIs and doGet are globally callable", () => {
     .sort();
 
   assert.deepEqual(callable, [
+    "decideAdminCancellation",
     "doGet",
+    "listAdminBookings",
+    "listAdminCancellationRequests",
+    "listAdminCourses",
     "listOpenCourses",
     "lookupBooking",
     "requestCancellation",
+    "setCourseRegistrationMode",
     "submitBooking",
   ]);
+});
+
+test("admin page supports booking inspection, cancellation decisions and course toggles safely", () => {
+  const htmlPath = path.join(sourceDirectory, "Admin.html");
+  const html = fs.readFileSync(htmlPath, "utf8");
+
+  for (const id of [
+    "booking-list",
+    "cancellation-list",
+    "course-list",
+    "admin-status",
+  ]) {
+    assert.match(html, new RegExp(`id=["']${id}["']`));
+  }
+  assert.match(html, /listAdminBookings/);
+  assert.match(html, /listAdminCancellationRequests/);
+  assert.match(html, /decideAdminCancellation/);
+  assert.match(html, /setCourseRegistrationMode/);
+  assert.match(html, /\.textContent\s*=/);
+  assert.doesNotMatch(html, /\.innerHTML\s*=/);
+  assert.doesNotMatch(html, /deleteRow|deleteBooking|deleteRequest/i);
 });

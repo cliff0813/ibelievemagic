@@ -425,6 +425,43 @@ test("repository writes strings beginning with equals as literal sheet values", 
   );
 });
 
+test("course-mode and audit repository helpers operate only on their declared records", () => {
+  const { context, sheets } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        ["course-1", "Course", "2099-12-01", "", "", "", "", "", "AUTO"],
+      ]),
+      AuditLog: createSheet("AuditLog", [expectedHeaders.AuditLog]),
+    },
+  });
+
+  context.updateCourse_("course-1", { manualRegistrationMode: "CLOSED" });
+  context.insertAuditLog_({
+    eventId: "event-1",
+    actorEmail: "admin@example.com",
+    action: "COURSE_REGISTRATION_CLOSED",
+    recordId: "course-1",
+    createdAt: "2099-01-01T00:00:00.000Z",
+  });
+
+  assert.equal(sheets.Courses.rows[1][8], "CLOSED");
+  assert.deepEqual(JSON.parse(JSON.stringify(context.getAuditLogs_())), [
+    {
+      eventId: "event-1",
+      actorEmail: "admin@example.com",
+      action: "COURSE_REGISTRATION_CLOSED",
+      recordId: "course-1",
+      createdAt: "2099-01-01T00:00:00.000Z",
+    },
+  ]);
+  assert.ok(
+    ["updateCourse_", "insertAuditLog_", "getAuditLogs_"].every((name) =>
+      name.endsWith("_"),
+    ),
+  );
+});
+
 test("initialization leaves exact existing headers and rows intact", () => {
   const rows = [expectedHeaders.Bookings.slice(), ["b1", "L1"]];
   const sheets = { Bookings: createSheet("Bookings", rows) };
