@@ -155,6 +155,14 @@
                 "status status-error",
               );
             }
+            if (request.notificationEmailStatus === "FAILED") {
+              appendText(
+                card,
+                "p",
+                "⚠ 通知寄送失敗：團主可能尚未收到取消結果通知。請手動聯絡團主跟進。",
+                "status status-error",
+              );
+            }
             if (request.needsRecovery) {
               appendText(
                 card,

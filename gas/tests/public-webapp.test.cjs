@@ -158,3 +158,67 @@ test("admin page supports booking inspection, cancellation decisions and course 
   assert.doesNotMatch(html, /\.innerHTML\s*=/);
   assert.doesNotMatch(html, /deleteRow|deleteBooking|deleteRequest/i);
 });
+
+test("admin cancellation card keeps a manual-contact warning for FAILED notifications after refresh", async () => {
+  const html = fs.readFileSync(path.join(sourceDirectory, "Admin.html"), "utf8");
+  const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
+  function element() {
+    return {
+      children: [],
+      className: "",
+      textContent: "",
+      appendChild(child) { this.children.push(child); return child; },
+      replaceChildren() { this.children = []; },
+      addEventListener() {},
+    };
+  }
+  const elements = {
+    "admin-status": element(),
+    "booking-list": element(),
+    "cancellation-list": element(),
+    "course-list": element(),
+  };
+  const request = {
+    requestId: "r1",
+    bookingId: "b1",
+    status: "APPROVED",
+    leaderName: "Lead",
+    leaderEmail: "lead@example.com",
+    notificationEmailStatus: "FAILED",
+  };
+  const responses = {
+    listAdminBookings: [],
+    listAdminCancellationRequests: [request],
+    listAdminCourses: [],
+  };
+  const runner = { success() {}, failure() {} };
+  const context = {
+    document: {
+      getElementById: (id) => elements[id],
+      createElement: () => element(),
+    },
+    google: {
+      script: {
+        run: {
+          withSuccessHandler(success) { runner.success = success; return this; },
+          withFailureHandler(failure) { runner.failure = failure; return this; },
+          listAdminBookings() { runner.success(responses.listAdminBookings); },
+          listAdminCancellationRequests() { runner.success(responses.listAdminCancellationRequests); },
+          listAdminCourses() { runner.success(responses.listAdminCourses); },
+        },
+      },
+    },
+    Promise,
+  };
+  vm.createContext(context);
+  vm.runInContext(script, context, { filename: "Admin.html" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const texts = [];
+  (function collect(node) {
+    texts.push(node.textContent);
+    node.children.forEach(collect);
+  })(elements["cancellation-list"]);
+  assert.equal(elements["admin-status"].textContent, "資料已更新。");
+  assert.ok(texts.some((text) => /通知寄送失敗/.test(text) && /手動聯絡團主/.test(text)));
+});
