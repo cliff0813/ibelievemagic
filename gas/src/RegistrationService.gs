@@ -275,7 +275,7 @@ function requestCancellation(lookupCode, leaderPhone, reason) {
     if (booking.status !== "SUBMITTED") {
       throw new Error("Cancellation cannot be requested for this booking");
     }
-    var pendingRequest = getCancellationRequests_().some(function (request) {
+    var openRequests = getCancellationRequests_().filter(function (request) {
       return (
         request.bookingId === booking.bookingId &&
         (request.status === "PENDING" ||
@@ -283,43 +283,56 @@ function requestCancellation(lookupCode, leaderPhone, reason) {
           request.status === "REJECTING")
       );
     });
-    if (pendingRequest) {
+    // A persisted PENDING request is the durable intent to cancel. While the
+    // booking is still SUBMITTED it means an earlier attempt stopped before the
+    // booking write, so the same public request resumes it instead of failing
+    // or creating a duplicate.
+    var intent = openRequests.filter(function (request) {
+      return request.status === "PENDING";
+    })[0];
+    if (openRequests.length > 1 || (openRequests.length === 1 && !intent)) {
       throw new Error("A cancellation request is already pending");
     }
 
-    var request = {
-      requestId: Utilities.getUuid(),
-      bookingId: booking.bookingId,
-      reason: normalizedReason,
-      status: "PENDING",
-      requestedAt: new Date().toISOString(),
-      reviewedBy: "",
-      reviewedAt: "",
-      notificationEmailStatus: "PENDING",
-    };
-    insertCancellationRequest_(request);
-    try {
-      updateBooking_(booking.bookingId, { status: "CANCELLATION_PENDING" });
-    } catch (statusError) {
-      var persistenceFailure =
-        "Cancellation persistence failed: " + statusError.message;
+    if (!intent) {
+      intent = {
+        requestId: Utilities.getUuid(),
+        bookingId: booking.bookingId,
+        reason: normalizedReason,
+        status: "PENDING",
+        requestedAt: new Date().toISOString(),
+        reviewedBy: "",
+        reviewedAt: "",
+        notificationEmailStatus: "PENDING",
+      };
       try {
-        updateBooking_(booking.bookingId, { status: "SUBMITTED" });
-      } catch (rollbackError) {
-        persistenceFailure +=
-          "; could not restore booking status: " + rollbackError.message;
+        insertCancellationRequest_(intent);
+      } catch (insertError) {
+        // The row may have been persisted before the error was reported; repeating
+        // the same request finds it and resumes, so nothing is rolled back.
+        throw recoveryRequiredError_("Cancellation request creation", insertError);
       }
-      try {
-        updateCancellationRequest_(request.requestId, { status: "FAILED" });
-      } catch (requestError) {
-        persistenceFailure +=
-          "; could not mark cancellation request FAILED: " + requestError.message;
-      }
-      throw new Error(persistenceFailure);
     }
+    completeCancellationCreation_(booking);
     return { success: true, status: "CANCELLATION_PENDING" };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/**
+ * Moves a booking whose PENDING cancellation request is already durable to
+ * CANCELLATION_PENDING. Idempotent; the caller must hold the Script Lock.
+ * Nothing is rolled back on failure: the PENDING request stays as the intent.
+ */
+function completeCancellationCreation_(booking) {
+  if (booking.status === "CANCELLATION_PENDING") {
+    return;
+  }
+  try {
+    updateBooking_(booking.bookingId, { status: "CANCELLATION_PENDING" });
+  } catch (statusError) {
+    throw recoveryRequiredError_("Cancellation request creation", statusError);
   }
 }
 

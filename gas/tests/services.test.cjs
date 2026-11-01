@@ -32,6 +32,8 @@ function createHarness({
   failCancellationFinalizeUpdate = false, // "before" | "after" the write lands
   failCourseUpdateOnce = false,
   failAdminBookingRollback = false,
+  failCancellationInsertAfterWrite = false,
+  failCancellationStatusOnce = false, // true | "after" (write lands, then reports failure)
   now = 0,
 } = {}) {
   let shouldFailCancellationDecisionUpdate = failCancellationDecisionUpdate;
@@ -39,6 +41,8 @@ function createHarness({
   const auditNoWriteActionsToFail = [...failAuditAppendNoWriteActions];
   let shouldFailCancellationFinalize = failCancellationFinalizeUpdate;
   let shouldFailCourseUpdate = failCourseUpdateOnce;
+  let shouldFailCancellationInsert = failCancellationInsertAfterWrite;
+  let cancellationStatusOnce = failCancellationStatusOnce;
   const state = {
     bookings: structuredClone(bookings),
     participants: structuredClone(participants),
@@ -113,6 +117,12 @@ function createHarness({
       }
       const booking = state.bookings.find((item) => item.bookingId === bookingId);
       if (!booking) throw new Error("Booking not found");
+      if (cancellationStatusOnce && updates.status === "CANCELLATION_PENDING") {
+        const mode = cancellationStatusOnce;
+        cancellationStatusOnce = false;
+        if (mode === "after") Object.assign(booking, structuredClone(updates));
+        throw new Error("Booking status persistence failed");
+      }
       Object.assign(booking, structuredClone(updates));
     },
     updateCancellationRequest_: (requestId, updates) => {
@@ -155,6 +165,10 @@ function createHarness({
     insertCancellationRequest_: (request) => {
       state.repositoryWrites++;
       state.cancellationRequests.push(structuredClone(request));
+      if (shouldFailCancellationInsert) {
+        shouldFailCancellationInsert = false;
+        throw new Error("Cancellation insert reported failure");
+      }
     },
     updateCourse_: (courseId, updates) => {
       state.repositoryWrites++;
@@ -540,7 +554,7 @@ test("取消原因拒絕非字串且非 null 的值", () => {
 });
 
 test("取消申請拒絕已取消報名及已有待審核申請的報名", () => {
-  for (const status of ["CANCELLED", "CANCELLATION_PENDING", "SUBMITTED"]) {
+  for (const status of ["CANCELLED", "CANCELLATION_PENDING"]) {
     const booking = seedBooking(status);
     const requests =
       status !== "CANCELLED"
@@ -565,26 +579,186 @@ test("取消申請拒絕已取消報名及已有待審核申請的報名", () =>
   }
 });
 
-test("取消狀態寫入失敗時保留報名並將取消申請標記 FAILED", () => {
+test("取消狀態寫入失敗時保留 PENDING 意圖、不標記 FAILED 且不回寫，並回傳可恢復錯誤", () => {
+  const booking = seedBooking("SUBMITTED");
+  const { context, state } = createHarness({
+    bookings: [booking],
+    failCancellationStatusOnce: true,
+  });
+
+  assert.throws(
+    () => context.requestCancellation("existing-code", "0987 654 321", "無法參加"),
+    (error) => error.code === "RECOVERY_REQUIRED" && /resume|repeat|recover/i.test(error.message),
+  );
+  assert.equal(state.bookings[0].status, "SUBMITTED");
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.lockReleased, 1);
+
+  const retry = context.requestCancellation("existing-code", "0987 654 321", "無法參加");
+  assert.equal(retry.success, true);
+  assert.equal(retry.status, "CANCELLATION_PENDING");
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+});
+
+test("取消狀態寫入持續失敗時不產生 FAILED／回滾寫入，申請仍可由管理員恢復", () => {
   const booking = seedBooking("SUBMITTED");
   const { context, state } = createHarness({
     bookings: [booking],
     failCancellationStatusUpdate: true,
+    failAdminBookingRollback: true,
+  });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    assert.throws(
+      () => context.requestCancellation("existing-code", "0987654321", "x"),
+      (error) => error.code === "RECOVERY_REQUIRED",
+    );
+  }
+  assert.equal(state.bookings[0].status, "SUBMITTED");
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+
+  const listed = context.listAdminCancellationRequests();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].needsCreationRecovery, true);
+  assert.equal(listed[0].needsRecovery, false);
+  assert.throws(
+    () => context.decideAdminCancellation(state.cancellationRequests[0].requestId, "APPROVED"),
+    /not awaiting cancellation review/,
+  );
+});
+
+test("取消申請寫入回報失敗但資料已持久化時，重試完成同一筆申請且不重複", () => {
+  const booking = seedBooking("SUBMITTED");
+  const { context, state } = createHarness({
+    bookings: [booking],
+    failCancellationInsertAfterWrite: true,
   });
 
   assert.throws(
-    () =>
-      context.requestCancellation(
-        "existing-code",
-        "0987 654 321",
-        "無法參加",
-      ),
-    /Cancellation persistence failed/,
+    () => context.requestCancellation("existing-code", "0987654321", "無法參加"),
+    (error) => error.code === "RECOVERY_REQUIRED",
+  );
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.bookings[0].status, "SUBMITTED");
+
+  const retry = context.requestCancellation("existing-code", "0987 654 321", "不同原因");
+  assert.equal(retry.status, "CANCELLATION_PENDING");
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.cancellationRequests[0].reason, "無法參加");
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+});
+
+test("報名狀態已寫入但回報失敗時狀態一致，重試不建立重複申請", () => {
+  const booking = seedBooking("SUBMITTED");
+  const { context, state } = createHarness({
+    bookings: [booking],
+    failCancellationStatusOnce: "after",
+  });
+
+  assert.throws(
+    () => context.requestCancellation("existing-code", "0987654321", "無法參加"),
+    (error) => error.code === "RECOVERY_REQUIRED",
+  );
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.throws(
+    () => context.requestCancellation("existing-code", "0987654321", "無法參加"),
+    /cancel|pending/i,
+  );
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(context.listAdminCancellationRequests()[0].needsCreationRecovery, false);
+});
+
+test("管理員可恢復卡住的取消建立：僅一筆申請、報名 CANCELLATION_PENDING、重複執行冪等", () => {
+  const booking = seedBooking("SUBMITTED");
+  const { context, state } = createHarness({
+    bookings: [booking],
+    failCancellationStatusOnce: true,
+  });
+  assert.throws(
+    () => context.requestCancellation("existing-code", "0987654321", "無法參加"),
+    (error) => error.code === "RECOVERY_REQUIRED",
+  );
+  const requestId = state.cancellationRequests[0].requestId;
+  assert.equal(context.listAdminCancellationRequests()[0].needsCreationRecovery, true);
+
+  const result = context.recoverAdminCancellationCreation(requestId);
+  assert.equal(result.success, true);
+  assert.equal(result.status, "CANCELLATION_PENDING");
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.equal(state.bookings[0].status, "CANCELLATION_PENDING");
+  assert.equal(context.listAdminCancellationRequests()[0].needsCreationRecovery, false);
+
+  const writesBefore = state.repositoryWrites;
+  const repeat = context.recoverAdminCancellationCreation(requestId);
+  assert.equal(repeat.success, true);
+  assert.equal(state.repositoryWrites, writesBefore);
+  assert.equal(state.cancellationRequests.length, 1);
+  assert.equal(state.lockAcquired, state.lockReleased);
+
+  const decided = context.decideAdminCancellation(requestId, "APPROVED");
+  assert.equal(decided.success, true);
+  assert.equal(state.bookings[0].status, "CANCELLED");
+});
+
+test("管理員恢復失敗時回傳可恢復錯誤且保留狀態；非待處理請求或不符狀態被拒絕", () => {
+  const booking = seedBooking("SUBMITTED");
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [
+      { requestId: "r-1", bookingId: booking.bookingId, reason: "", status: "PENDING",
+        requestedAt: "2099-01-02T00:00:00.000Z", reviewedBy: "", reviewedAt: "",
+        notificationEmailStatus: "PENDING" },
+    ],
+    failCancellationStatusUpdate: true,
+  });
+  assert.throws(
+    () => context.recoverAdminCancellationCreation("r-1"),
+    (error) => error.code === "RECOVERY_REQUIRED",
   );
   assert.equal(state.bookings[0].status, "SUBMITTED");
-  assert.equal(state.cancellationRequests.length, 1);
-  assert.equal(state.cancellationRequests[0].status, "FAILED");
-  assert.equal(state.lockReleased, 1);
+  assert.equal(state.cancellationRequests[0].status, "PENDING");
+  assert.throws(() => context.recoverAdminCancellationCreation("missing"), /not found/i);
+  assert.throws(() => context.recoverAdminCancellationCreation(""), /required/i);
+
+  for (const [requestStatus, bookingStatus] of [
+    ["APPROVED", "SUBMITTED"],
+    ["FAILED", "SUBMITTED"],
+    ["PENDING", "CANCELLED"],
+  ]) {
+    const seeded = seedBooking(bookingStatus);
+    const h = createHarness({
+      bookings: [seeded],
+      cancellationRequests: [
+        { requestId: "r-2", bookingId: seeded.bookingId, reason: "", status: requestStatus,
+          requestedAt: "x", reviewedBy: "", reviewedAt: "", notificationEmailStatus: "PENDING" },
+      ],
+    });
+    assert.throws(() => h.context.recoverAdminCancellationCreation("r-2"), /cannot|only|not/i);
+    assert.equal(h.state.bookings[0].status, bookingStatus);
+  }
+});
+
+test("非管理員無法呼叫取消建立恢復，且不讀寫資料", () => {
+  const booking = seedBooking("SUBMITTED");
+  const { context, state } = createHarness({
+    bookings: [booking],
+    cancellationRequests: [
+      { requestId: "r-1", bookingId: booking.bookingId, reason: "", status: "PENDING",
+        requestedAt: "x", reviewedBy: "", reviewedAt: "", notificationEmailStatus: "PENDING" },
+    ],
+    activeUserEmail: "intruder@example.com",
+  });
+  assert.throws(() => context.recoverAdminCancellationCreation("r-1"), /admin/i);
+  assert.equal(state.repositoryReads, 0);
+  assert.equal(state.repositoryWrites, 0);
+  assert.equal(state.bookings[0].status, "SUBMITTED");
 });
 
 test("報名資料寫入失敗時標記 FAILED、回報錯誤並釋放鎖", () => {
@@ -801,6 +975,7 @@ test("每個管理 API 入口都在任何 repository 讀寫前驗證身分", () 
     () => context.listAdminCourses(),
     () => context.decideAdminCancellation(request.requestId, "APPROVED"),
     () => context.setCourseRegistrationMode("course-1", "CLOSED"),
+    () => context.recoverAdminCancellationCreation(request.requestId),
   ]) {
     assert.throws(call, /admin/i);
     assert.equal(state.repositoryReads, 0);

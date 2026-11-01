@@ -138,6 +138,10 @@ function listAdminCancellationRequests() {
         reviewedAt: request.reviewedAt,
         notificationEmailStatus: request.notificationEmailStatus,
         needsRecovery: !!recoveryDecision,
+        needsCreationRecovery:
+          request.status === "PENDING" &&
+          !!booking &&
+          booking.status === "SUBMITTED",
         notificationInProgress: request.notificationEmailStatus === "SENDING",
         recoveryDecision: recoveryDecision,
         leaderName: booking ? booking.leaderName : "",
@@ -145,6 +149,53 @@ function listAdminCancellationRequests() {
         courseTitle: course ? course.title : "",
       };
     });
+}
+
+/**
+ * Completes a cancellation creation that stopped after its PENDING request was
+ * persisted but before the booking became CANCELLATION_PENDING. Idempotent: it
+ * never inserts rows, and repeating it once recovered is a no-op.
+ *
+ * @param {string} requestId
+ * @return {{success:boolean,status:string,message:string}}
+ */
+function recoverAdminCancellationCreation(requestId) {
+  requireAdmin_();
+  if (typeof requestId !== "string" || requestId.trim() === "") {
+    throw new Error("Cancellation request ID is required");
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var request = getCancellationRequests_().filter(function (item) {
+      return item.requestId === requestId;
+    })[0];
+    if (!request) {
+      throw new Error("Cancellation request not found");
+    }
+    if (request.status !== "PENDING") {
+      throw new Error("Only a PENDING cancellation request can be recovered");
+    }
+    var booking = getBookings_().filter(function (item) {
+      return item.bookingId === request.bookingId;
+    })[0];
+    if (
+      !booking ||
+      (booking.status !== "SUBMITTED" &&
+        booking.status !== "CANCELLATION_PENDING")
+    ) {
+      throw new Error("Booking is not in a recoverable state for this request");
+    }
+    completeCancellationCreation_(booking);
+    return {
+      success: true,
+      status: "CANCELLATION_PENDING",
+      message: "Cancellation request creation completed",
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**

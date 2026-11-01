@@ -129,6 +129,7 @@ test("the approved public APIs remain callable alongside explicit admin APIs", (
     "listAdminCourses",
     "listOpenCourses",
     "lookupBooking",
+    "recoverAdminCancellationCreation",
     "requestCancellation",
     "setCourseRegistrationMode",
     "submitBooking",
@@ -152,6 +153,8 @@ test("admin page supports booking inspection, cancellation decisions and course 
   assert.match(html, /decideAdminCancellation/);
   assert.match(html, /setCourseRegistrationMode/);
   assert.match(html, /needsRecovery/);
+  assert.match(html, /recoverAdminCancellationCreation/);
+  assert.match(html, /needsCreationRecovery/);
   assert.match(html, /pendingRecovery/);
   assert.match(html, /繼續完成/);
   assert.match(html, /\.textContent\s*=/);

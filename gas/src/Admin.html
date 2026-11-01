@@ -181,7 +181,22 @@
               );
               card.appendChild(recoveryActions);
             }
-            if (request.status === "PENDING") {
+            if (request.needsCreationRecovery) {
+              appendText(
+                card,
+                "p",
+                "⚠ 此取消申請尚未完整建立（報名狀態未更新），需要恢復。請按「繼續建立」安全續行；完成前不可核准或拒絕。",
+                "status status-error",
+              );
+              var creationActions = document.createElement("div");
+              creationActions.className = "admin-actions";
+              creationActions.appendChild(
+                makeButton("繼續建立", "button-primary", function () {
+                  recoverCreation(request.requestId);
+                }),
+              );
+              card.appendChild(creationActions);
+            } else if (request.status === "PENDING") {
               var actions = document.createElement("div");
               actions.className = "admin-actions";
               actions.appendChild(
@@ -274,6 +289,18 @@
             })
             .catch(function (error) {
               setStatus("取消審核失敗：" + (error.message || error), true);
+            });
+        }
+
+        function recoverCreation(requestId) {
+          setStatus("正在繼續建立取消申請…", false);
+          callServer("recoverAdminCancellationCreation", requestId)
+            .then(function (result) {
+              setStatus(result.message, !result.success);
+              return refresh();
+            })
+            .catch(function (error) {
+              setStatus("取消申請建立未完成：" + (error.message || error), true);
             });
         }
 
