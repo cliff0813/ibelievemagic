@@ -70,6 +70,13 @@ function createHarness({
       state.repositoryReads++;
       return [structuredClone(state.course)];
     },
+    getSheetRecords_: (sheetName) => {
+      state.repositoryReads++;
+      if (sheetName === "CourseOutline" || sheetName === "CoursePricing") {
+        return [];
+      }
+      throw new Error("Unexpected sheet read: " + sheetName);
+    },
     getBookings_: () => {
       state.repositoryReads++;
       return state.bookings;
