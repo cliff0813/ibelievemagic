@@ -476,37 +476,6 @@ test("usable Courses rows are returned without adding fallback courses", () => {
     },
     fallback,
   });
-
-  test("getCourses returns content fields and keeps registration normalization", () => {
-    const { context } = loadRepository({
-      sheets: {
-        Courses: createSheet("Courses", [
-          expectedHeaders.Courses,
-          [
-            "sheet-course",
-            "Sheet course",
-            "2026-11-17",
-            "13:30",
-            "16:30",
-            "Hall",
-            "In person",
-            "image",
-            "",
-            "Description",
-            "Instructor",
-            "Instructor biography",
-          ],
-        ]),
-      },
-    });
-
-    const [course] = context.getCourses_();
-    assert.equal(course.description, "Description");
-    assert.equal(course.instructor, "Instructor");
-    assert.equal(course.instructorBio, "Instructor biography");
-    assert.equal(course.manualRegistrationMode, "AUTO");
-  });
-
   assert.deepEqual(
     JSON.parse(JSON.stringify(context.getCourses_())),
     [
@@ -526,6 +495,36 @@ test("usable Courses rows are returned without adding fallback courses", () => {
       },
     ],
   );
+});
+
+test("getCourses returns content fields and keeps registration normalization", () => {
+  const { context } = loadRepository({
+    sheets: {
+      Courses: createSheet("Courses", [
+        expectedHeaders.Courses,
+        [
+          "sheet-course",
+          "Sheet course",
+          "2026-11-17",
+          "13:30",
+          "16:30",
+          "Hall",
+          "In person",
+          "image",
+          "",
+          "Description",
+          "Instructor",
+          "Instructor biography",
+        ],
+      ]),
+    },
+  });
+
+  const [course] = context.getCourses_();
+  assert.equal(course.description, "Description");
+  assert.equal(course.instructor, "Instructor");
+  assert.equal(course.instructorBio, "Instructor biography");
+  assert.equal(course.manualRegistrationMode, "AUTO");
 });
 
 test("blank manual registration mode defaults to AUTO and valid values are preserved", () => {
